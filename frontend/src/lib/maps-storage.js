@@ -78,6 +78,11 @@ export async function listSupabaseMaps() {
 
         if (toMigrate.length > 0) {
           maps = [...toMigrate, ...maps];
+          try {
+            localStorage.removeItem("organizer.maps.v2");
+            localStorage.removeItem("organizer.map.v1");
+            localStorage.removeItem("organizer.active_map_id.v2");
+          } catch {}
         }
       }
     } catch (e) {
@@ -199,6 +204,15 @@ export async function flushPendingSupabaseSaves() {
   }
   pendingMaps.clear();
   await Promise.all(promises);
+}
+
+export function clearPendingSupabaseSaves() {
+  for (const timer of saveTimers.values()) {
+    clearTimeout(timer);
+  }
+  saveTimers.clear();
+  firstScheduledAt.clear();
+  pendingMaps.clear();
 }
 
 if (typeof window !== "undefined") {

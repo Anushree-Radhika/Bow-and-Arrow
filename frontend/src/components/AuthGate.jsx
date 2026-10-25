@@ -2,6 +2,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { LogOut } from "lucide-react";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
+import { flushPendingSupabaseSaves, clearPendingSupabaseSaves } from "@/lib/maps-storage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArchersBowIcon } from "@/components/ui/ArchersBowIcon";
@@ -91,7 +92,13 @@ export default function AuthGate({ children }) {
       value={{
         session,
         user: session.user,
-        signOut: () => supabase.auth.signOut(),
+        signOut: async () => {
+          try {
+            await flushPendingSupabaseSaves();
+          } catch {}
+          clearPendingSupabaseSaves();
+          if (supabase) await supabase.auth.signOut();
+        },
       }}
     >
       <div key={session?.user?.id || "auth_user"} className="contents">
