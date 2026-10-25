@@ -48,14 +48,14 @@ function beep() {
       osc.stop(ctx.currentTime + t + 0.24);
     });
     setTimeout(() => ctx.close(), 1500);
-  } catch { }
+  } catch {}
 }
 
 function speak(text) {
   try {
     window.speechSynthesis?.cancel();
     window.speechSynthesis?.speak(new SpeechSynthesisUtterance(text));
-  } catch { }
+  } catch {}
 }
 
 export default function MindMapCanvas() {
@@ -65,12 +65,11 @@ export default function MindMapCanvas() {
   const [busy, setBusy] = useState(false);
   const [expanding, setExpanding] = useState(null);
 
-  // Multi-map management & Left Drawer State
+  // Multi-map management & Sidebar State
   const [maps, setMaps] = useState([]);
   const [activeMapId, setActiveMapIdState] = useState(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [isPinned, setIsPinned] = useState(false);
-  const [drawerTab, setDrawerTab] = useState("maps"); // "maps" | "create" | "engine"
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarTab, setSidebarTab] = useState("maps"); // "maps" | "create"
   const [activeNotesNodeId, setActiveNotesNodeId] = useState(null);
 
   // Canvas Viewport & Zoom
@@ -94,13 +93,12 @@ export default function MindMapCanvas() {
         setActiveMapId(initialMap.id);
         dispatch({ type: "HYDRATE", saved: initialMap, now: Date.now() });
       } else {
-        setDrawerOpen(true);
-        setDrawerTab("create");
+        setSidebarTab("create");
       }
 
       const savedZoom = localStorage.getItem("organizer.zoom.v1");
       if (savedZoom) setZoom(Number(savedZoom) || 1);
-    } catch { }
+    } catch {}
     setReady(true);
   }, []);
 
@@ -109,7 +107,7 @@ export default function MindMapCanvas() {
     setZoom(clamped);
     try {
       localStorage.setItem("organizer.zoom.v1", String(clamped));
-    } catch { }
+    } catch {}
   };
 
   // Sync active map updates back into maps array
@@ -217,7 +215,7 @@ export default function MindMapCanvas() {
     setNotice({ kind: "ok", text: bits.join(" ") });
   };
 
-  // Map selection from drawer
+  // Map selection from sidebar
   const handleSelectMap = (map) => {
     setActiveMapIdState(map.id);
     setActiveMapId(map.id);
@@ -237,8 +235,8 @@ export default function MindMapCanvas() {
         setActiveMapIdState(null);
         setActiveMapId(null);
         dispatch({ type: "LOAD_MAP", map: { title: "", nodes: [] }, now: now() });
-        setDrawerOpen(true);
-        setDrawerTab("create");
+        setSidebarOpen(true);
+        setSidebarTab("create");
       }
     }
   };
@@ -293,7 +291,7 @@ export default function MindMapCanvas() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[#0d0f14] text-slate-100 font-sans">
-      {/* 1. Left Drawer (Slides out smoothly over canvas) */}
+      {/* 1. Side-by-side Collapsible Sidebar (2 Clean Tabs: Maps & Create) */}
       <Sidebar
         maps={maps}
         activeMapId={activeMapId}
@@ -302,15 +300,10 @@ export default function MindMapCanvas() {
         onGenerated={onGenerated}
         folderId={state.folderId}
         onFolderChange={(folderId) => dispatch({ type: "SET_FOLDER", folderId })}
-        isOpen={drawerOpen}
-        onToggle={() => setDrawerOpen(!drawerOpen)}
-        zoom={zoom}
-        onChangeZoom={changeZoom}
-        onResetView={resetView}
-        activeTab={drawerTab}
-        onTabChange={setDrawerTab}
-        isPinned={isPinned}
-        onTogglePin={() => setIsPinned(!isPinned)}
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
+        activeTab={sidebarTab}
+        onTabChange={setSidebarTab}
       />
 
       {/* 2. Main Canvas Workspace Area */}
@@ -318,20 +311,18 @@ export default function MindMapCanvas() {
         {/* Top Header Bar */}
         <header className="flex h-13 w-full shrink-0 items-center justify-between border-b border-[#232732] bg-[#12141a]/90 px-4 py-2 backdrop-blur-md z-30">
           <div className="flex items-center gap-3 min-w-0">
-            {/* Left Drawer Trigger Button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setDrawerOpen(true)}
-              className="h-8 gap-2 rounded-xl border-[#2d3342] bg-[#161922] text-xs font-semibold text-slate-200 hover:bg-[#202430] hover:text-white shadow-sm"
-              title="Open roadmaps drawer"
-            >
-              <PanelLeft className="size-4 text-indigo-400" />
-              <span>Study Maps</span>
-              <Badge className="border border-[#2d3342] bg-[#101217] text-[10px] text-indigo-300 px-1.5 py-0 font-mono">
-                {maps.length}
-              </Badge>
-            </Button>
+            {!sidebarOpen && (
+              <Button
+                variant="ghost"
+                size="iconSm"
+                onClick={() => setSidebarOpen(true)}
+                className="size-8 text-muted-foreground hover:bg-[#1f232c] hover:text-white"
+                title="Open sidebar"
+                aria-label="Open sidebar"
+              >
+                <PanelLeft className="size-4" />
+              </Button>
+            )}
 
             {hasMap ? (
               <div className="flex items-center gap-2 min-w-0">
@@ -359,8 +350,8 @@ export default function MindMapCanvas() {
               variant="secondary"
               size="sm"
               onClick={() => {
-                setDrawerOpen(true);
-                setDrawerTab("create");
+                setSidebarOpen(true);
+                setSidebarTab("create");
               }}
               className="h-8 gap-1.5 rounded-lg border border-[#2d3342] bg-[#191c24] text-xs font-medium text-slate-200 hover:bg-[#222631] hover:text-white shadow-sm"
               title="Create new roadmap"
@@ -528,15 +519,15 @@ export default function MindMapCanvas() {
                     Welcome to Organizer
                   </h2>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Open the study drawer from the left to select an existing roadmap or generate a brand new interactive curriculum.
+                    Select a study roadmap from the left sidebar, or create a new one to begin your focused study session.
                   </p>
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
                   <Button
                     onClick={() => {
-                      setDrawerOpen(true);
-                      setDrawerTab("maps");
+                      setSidebarOpen(true);
+                      setSidebarTab("maps");
                     }}
                     variant="outline"
                     className="w-full sm:w-auto gap-2 rounded-xl border-[#2d3342] bg-[#1a1d26] text-xs font-medium text-slate-200 hover:bg-[#202430] hover:text-white"
@@ -547,8 +538,8 @@ export default function MindMapCanvas() {
 
                   <Button
                     onClick={() => {
-                      setDrawerOpen(true);
-                      setDrawerTab("create");
+                      setSidebarOpen(true);
+                      setSidebarTab("create");
                     }}
                     className="w-full sm:w-auto gap-2 rounded-xl bg-indigo-600 text-xs font-medium text-white hover:bg-indigo-500 shadow-md shadow-indigo-600/25"
                   >
@@ -568,6 +559,14 @@ export default function MindMapCanvas() {
           </div>
         </div>
       </div>
+
+      {/* 3. Topic Notes & Points Store Dialog (shadcn Card + Dialog) */}
+      <NodeNotesDialog
+        isOpen={Boolean(activeNotesNodeId)}
+        onOpenChange={(open) => !open && setActiveNotesNodeId(null)}
+        node={state.nodes.find((n) => n.id === activeNotesNodeId)}
+        onSaveNotes={onSaveNotes}
+      />
     </div>
   );
 }
