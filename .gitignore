@@ -41,3 +41,7 @@ Thumbs.db
 .vscode/
 .idea/
 backend/.venv
+
+# Local Fallback Storage
+storage/
+backend/storage/

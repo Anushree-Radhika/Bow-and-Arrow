@@ -1,4 +1,4 @@
-# Organizer
+# Bow and Arrow
 
 Turn a prompt, or your own PDFs, into a study map with a 30-minute timer on every topic. Next.js (App Router) + FastAPI + Supabase (PostgreSQL, pgvector, RLS) + Gemini.
 

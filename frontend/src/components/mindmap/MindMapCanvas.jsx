@@ -21,13 +21,10 @@ import {
   reducer,
 } from "@/lib/mindmap-logic";
 import {
-  deleteMapFromCloud,
-  getActiveMapId,
-  loadSavedMaps,
-  persistMapToCloud,
-  saveAllMaps,
-  setActiveMapId,
-  syncMapsWithCloud,
+  debouncedSaveToSupabase,
+  deleteSupabaseMap,
+  listSupabaseMaps,
+  saveSupabaseMap,
 } from "@/lib/maps-storage";
 import Sidebar from "@/components/navigation/Sidebar";
 import CommandBar from "./CommandBar";
@@ -84,56 +81,40 @@ export default function MindMapCanvas() {
   const panStartRef = useRef({ startX: 0, startY: 0, initialPanX: 60, initialPanY: 60 });
   const lastAlarm = useRef(0);
 
-  // Load saved maps on mount & synchronize with cloud database
+  // Load saved maps directly from Supabase on mount
   useEffect(() => {
-    try {
-      const savedMaps = loadSavedMaps();
-      setMaps(savedMaps);
+    let mounted = true;
+    listSupabaseMaps()
+      .then((savedMaps) => {
+        if (!mounted) return;
+        setMaps(savedMaps);
 
-      const savedActiveId = getActiveMapId();
-      const initialMap = savedMaps.find((m) => m.id === savedActiveId) || savedMaps[0];
-
-      if (initialMap) {
-        setActiveMapIdState(initialMap.id);
-        setActiveMapId(initialMap.id);
-        dispatch({ type: "HYDRATE", saved: initialMap, now: Date.now() });
-      } else {
-        setSidebarTab("create");
-      }
-
-      const savedZoom = localStorage.getItem("bow_and_arrow.zoom.v1") || localStorage.getItem("organizer.zoom.v1");
-      if (savedZoom) setZoom(Number(savedZoom) || 1);
-    } catch {}
-    setReady(true);
-
-    // Synchronize with database in background
-    syncMapsWithCloud()
-      .then((cloudMaps) => {
-        if (Array.isArray(cloudMaps) && cloudMaps.length > 0) {
-          setMaps(cloudMaps);
-          setActiveMapIdState((curActive) => {
-            if (!curActive || !cloudMaps.some((m) => m.id === curActive)) {
-              const first = cloudMaps[0];
-              setActiveMapId(first.id);
-              dispatch({ type: "HYDRATE", saved: first, now: Date.now() });
-              return first.id;
-            }
-            return curActive;
-          });
+        if (savedMaps.length > 0) {
+          const initialMap = savedMaps[0];
+          setActiveMapIdState(initialMap.id);
+          dispatch({ type: "HYDRATE", saved: initialMap, now: Date.now() });
+        } else {
+          setSidebarTab("create");
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.error("Failed to load maps from Supabase:", err);
+      })
+      .finally(() => {
+        if (mounted) setReady(true);
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const changeZoom = (newZoom) => {
     const clamped = Math.max(0.5, Math.min(1.6, Number(newZoom.toFixed(2))));
     setZoom(clamped);
-    try {
-      localStorage.setItem("organizer.zoom.v1", String(clamped));
-    } catch { }
   };
 
-  // Sync active map updates back into maps array and cloud database
+  // Sync active map updates back into Supabase cloud database
   useEffect(() => {
     if (!ready || !activeMapId || !state.title) return;
     setMaps((prev) => {
@@ -144,12 +125,11 @@ export default function MindMapCanvas() {
         title: state.title,
         nodes: state.nodes,
         folderId: state.folderId,
-        updatedAt: Date.now(),
+        updatedAt: new Date().toISOString(),
       };
       const nextMaps = [...prev];
       nextMaps[idx] = updated;
-      saveAllMaps(nextMaps);
-      persistMapToCloud(updated);
+      debouncedSaveToSupabase(updated, 800);
       return nextMaps;
     });
   }, [ready, state.nodes, state.title, state.folderId, activeMapId]);
@@ -212,7 +192,7 @@ export default function MindMapCanvas() {
     [state.nodes, state.title, state.folderId]
   ); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Map generation handler
+  // Map generation handler (saved to Supabase)
   const onGenerated = (res) => {
     const newId = "map_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6);
     const newMap = {
@@ -220,16 +200,14 @@ export default function MindMapCanvas() {
       title: res.title,
       nodes: res.nodes,
       folderId: state.folderId || null,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
 
+    saveSupabaseMap(newMap).catch((e) => console.warn("Could not save new map to Supabase:", e));
     const nextMaps = [newMap, ...maps.filter((m) => m.id !== newId)];
     setMaps(nextMaps);
-    saveAllMaps(nextMaps);
-    persistMapToCloud(newMap);
     setActiveMapIdState(newId);
-    setActiveMapId(newId);
 
     dispatch({ type: "LOAD_MAP", map: res, now: now() });
     setPan({ x: 60, y: 60 });
@@ -245,25 +223,22 @@ export default function MindMapCanvas() {
   // Map selection from sidebar
   const handleSelectMap = (map) => {
     setActiveMapIdState(map.id);
-    setActiveMapId(map.id);
     dispatch({ type: "LOAD_MAP", map, now: now() });
     setPan({ x: 60, y: 60 });
     changeZoom(1);
   };
 
-  // Map deletion
+  // Map deletion from Supabase
   const handleDeleteMap = (id) => {
     const nextMaps = maps.filter((m) => m.id !== id);
     setMaps(nextMaps);
-    saveAllMaps(nextMaps);
-    deleteMapFromCloud(id);
+    deleteSupabaseMap(id).catch((e) => console.warn("Could not delete map from Supabase:", e));
 
     if (activeMapId === id) {
       if (nextMaps.length > 0) {
         handleSelectMap(nextMaps[0]);
       } else {
         setActiveMapIdState(null);
-        setActiveMapId(null);
         dispatch({ type: "LOAD_MAP", map: { title: "", nodes: [] }, now: now() });
         setSidebarOpen(true);
         setSidebarTab("create");
