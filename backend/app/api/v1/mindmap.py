@@ -12,6 +12,8 @@ from app.services.ai import AI, GeminiAI
 from app.services.mindmap_service import generate_map, run_command
 from app.services.pdf_service import Chunk, PdfError, chunk_pages, extract_pages
 from app.services.storage_service import KnowledgeStore, SupabaseKnowledgeStore
+from app.services.voice_service import transcribe_audio
+
 
 router = APIRouter(prefix="/api/mindmap", tags=["mindmap"])
 
@@ -88,3 +90,14 @@ def command(
     """Natural language -> one mutation action (COMPLETE, ADD_TIME, RESTART, EXPAND, GENERATE_NEW_MAP)."""
     body.folderId = _check_uuid(body.folderId, "folderId")
     return run_command(body, user, ai, store)
+
+
+
+@router.post("/transcribe")
+async def transcribe_voice(
+    file: UploadFile = File(...),
+    node_titles: str = Form(default=""),
+    current_user: User = Depends(get_current_user),
+):
+    text = await transcribe_audio(file, prompt_context=node_titles)
+    return {"text": text}
