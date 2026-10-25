@@ -94,7 +94,9 @@ export default function AuthGate({ children }) {
         signOut: () => supabase.auth.signOut(),
       }}
     >
-      {children}
+      <div key={session?.user?.id || "auth_user"} className="contents">
+        {children}
+      </div>
     </AuthContext.Provider>
   );
 }

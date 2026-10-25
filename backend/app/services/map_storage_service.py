@@ -72,7 +72,7 @@ class MapStorageService:
             "updated_at": "now()",
         }
 
-        url = f"{settings.supabase_url}/rest/v1/study_maps"
+        url = f"{settings.supabase_url}/rest/v1/study_maps?on_conflict=id"
         headers = {
             **self._headers(user),
             "Prefer": "resolution=merge-duplicates,return=representation",

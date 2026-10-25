@@ -193,7 +193,7 @@ export default function MindMapCanvas() {
   ); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Map generation handler (saved to Supabase)
-  const onGenerated = (res) => {
+  const onGenerated = async (res) => {
     const newId = "map_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6);
     const newMap = {
       id: newId,
@@ -204,7 +204,6 @@ export default function MindMapCanvas() {
       updatedAt: new Date().toISOString(),
     };
 
-    saveSupabaseMap(newMap).catch((e) => console.warn("Could not save new map to Supabase:", e));
     const nextMaps = [newMap, ...maps.filter((m) => m.id !== newId)];
     setMaps(nextMaps);
     setActiveMapIdState(newId);
@@ -212,6 +211,12 @@ export default function MindMapCanvas() {
     dispatch({ type: "LOAD_MAP", map: res, now: now() });
     setPan({ x: 60, y: 60 });
     changeZoom(1);
+
+    try {
+      await saveSupabaseMap(newMap);
+    } catch (e) {
+      console.warn("Could not save new map to Supabase:", e);
+    }
 
     const bits = [
       res.grounded ? `Built from ${res.sources.map((s) => s.title).join(", ")}.` : "Built from your prompt.",
@@ -229,10 +234,14 @@ export default function MindMapCanvas() {
   };
 
   // Map deletion from Supabase
-  const handleDeleteMap = (id) => {
+  const handleDeleteMap = async (id) => {
     const nextMaps = maps.filter((m) => m.id !== id);
     setMaps(nextMaps);
-    deleteSupabaseMap(id).catch((e) => console.warn("Could not delete map from Supabase:", e));
+    try {
+      await deleteSupabaseMap(id);
+    } catch (e) {
+      console.warn("Could not delete map from Supabase:", e);
+    }
 
     if (activeMapId === id) {
       if (nextMaps.length > 0) {

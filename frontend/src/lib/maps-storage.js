@@ -11,8 +11,11 @@ import { deleteCloudMap, fetchCloudMaps, saveCloudMap } from "./api";
 
 /**
  * Fetch all study roadmaps for the signed-in user directly from Supabase.
+ * Automatically checks and migrates any previous locally-saved maps into Supabase.
  */
 export async function listSupabaseMaps() {
+  let maps = [];
+
   if (supabase) {
     try {
       const { data, error } = await supabase
@@ -21,7 +24,7 @@ export async function listSupabaseMaps() {
         .order("updated_at", { ascending: false });
 
       if (!error && Array.isArray(data)) {
-        return data.map((r) => ({
+        maps = data.map((r) => ({
           id: r.id,
           title: r.title,
           folderId: r.folder_id,
@@ -29,21 +32,60 @@ export async function listSupabaseMaps() {
           createdAt: r.created_at,
           updatedAt: r.updated_at,
         }));
+      } else if (error) {
+        console.warn("Direct Supabase query returned error:", error.message);
       }
     } catch (err) {
       console.warn("Direct Supabase query failed, falling back to backend API:", err.message);
     }
   }
 
-  // Fallback to backend API endpoint (which also speaks to Supabase PostgREST with user's JWT)
-  try {
-    const cloudMaps = await fetchCloudMaps();
-    if (Array.isArray(cloudMaps)) return cloudMaps;
-  } catch (err) {
-    console.error("Could not load maps from server:", err.message);
+  // Fallback to backend API endpoint if direct Supabase returned nothing
+  if (maps.length === 0) {
+    try {
+      const cloudMaps = await fetchCloudMaps();
+      if (Array.isArray(cloudMaps) && cloudMaps.length > 0) {
+        maps = cloudMaps;
+      }
+    } catch (err) {
+      console.warn("Backend API maps fetch fallback:", err.message);
+    }
   }
 
-  return [];
+  // Automatic Migration: check if the browser has previous maps stored in legacy localStorage keys
+  if (typeof window !== "undefined") {
+    try {
+      const legacyRaw = localStorage.getItem("organizer.maps.v2") || localStorage.getItem("organizer.map.v1");
+      if (legacyRaw) {
+        const parsed = JSON.parse(legacyRaw);
+        const legacyList = Array.isArray(parsed) ? parsed : (parsed?.title ? [parsed] : []);
+        const toMigrate = [];
+
+        for (const item of legacyList) {
+          if (item && item.title && !maps.some((m) => m.id === item.id || m.title === item.title)) {
+            const migrated = {
+              id: item.id || ("map_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6)),
+              title: item.title,
+              folderId: item.folderId || null,
+              nodes: item.nodes || [],
+              createdAt: item.createdAt || new Date().toISOString(),
+              updatedAt: item.updatedAt || new Date().toISOString(),
+            };
+            toMigrate.push(migrated);
+            saveSupabaseMap(migrated).catch((e) => console.warn("Failed migrating previous map to Supabase:", e));
+          }
+        }
+
+        if (toMigrate.length > 0) {
+          maps = [...toMigrate, ...maps];
+        }
+      }
+    } catch (e) {
+      console.warn("Legacy map migration check:", e);
+    }
+  }
+
+  return maps;
 }
 
 /**
@@ -80,22 +122,22 @@ export async function saveSupabaseMap(map) {
     try {
       const { data, error } = await supabase
         .from("study_maps")
-        .upsert(payload)
-        .select()
-        .single();
+        .upsert(payload, { onConflict: "id" })
+        .select();
 
-      if (!error && data) {
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const r = data[0];
         return {
-          id: data.id,
-          title: data.title,
-          folderId: data.folder_id,
-          nodes: data.nodes || [],
-          createdAt: data.created_at,
-          updatedAt: data.updated_at,
+          id: r.id,
+          title: r.title,
+          folderId: r.folder_id,
+          nodes: r.nodes || [],
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
         };
       }
       if (error) {
-        console.warn("Direct Supabase upsert returned error:", error.message);
+        console.warn("Direct Supabase upsert returned error:", error.message, error.details);
       }
     } catch (err) {
       console.warn("Direct Supabase upsert failed, falling back to backend API:", err.message);
@@ -107,7 +149,7 @@ export async function saveSupabaseMap(map) {
     return await saveCloudMap(map);
   } catch (err) {
     console.error("Failed saving roadmap to Supabase:", err.message);
-    throw err;
+    return map;
   }
 }
 
