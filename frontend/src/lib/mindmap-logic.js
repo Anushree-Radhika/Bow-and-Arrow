@@ -88,12 +88,23 @@ export function reducer(state, action) {
       }));
     }
 
-    case "RESTART": {
-      // "Scratch reset": back to a fresh 30 minutes, not started, not completed
+    case "SET_NODE_TIME": {
       const s = tick(state, action.now);
-      return patch(s, action.id, () => ({
-        totalSeconds: DEFAULT_SECONDS,
-        remainingSeconds: DEFAULT_SECONDS,
+      const secs = Math.max(60, Math.floor(action.seconds));
+      return patch(s, action.id, (n) => ({
+        totalSeconds: secs,
+        remainingSeconds: secs,
+        status: n.status === "completed" ? "idle" : n.status,
+      }));
+    }
+
+    case "RESTART": {
+      // "Scratch reset": back to fresh timer, not started, not completed
+      const s = tick(state, action.now);
+      const secs = action.seconds || DEFAULT_SECONDS;
+      return patch(s, action.id, (n) => ({
+        totalSeconds: secs,
+        remainingSeconds: secs,
         status: "idle",
       }));
     }
@@ -148,7 +159,7 @@ export const isTimeUp = (n) => n.status !== "completed" && n.remainingSeconds ==
 
 // ------------------------------------------------------------------ layout
 
-export const CARD = { w: 288, h: 196, gapX: 72, gapY: 20, pad: 24, rootW: 200, rootH: 56 };
+export const CARD = { w: 220, h: 84, gapX: 64, gapY: 20, pad: 32, rootW: 180, rootH: 46 };
 export const ROOT_ID = "__root__";
 
 /** Left-to-right tidy tree. Leaves take consecutive rows; parents centre on their children. */

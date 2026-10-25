@@ -11,7 +11,7 @@ class Settings:
     supabase_url: str = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_anon_key: str = os.getenv("SUPABASE_ANON_KEY", "")
     gemini_api_key: str = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
-    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
     gemini_embed_model: str = os.getenv("GEMINI_EMBED_MODEL", "gemini-embedding-001")
     embed_dim: int = 768  # must match vector(768) in the migration
 

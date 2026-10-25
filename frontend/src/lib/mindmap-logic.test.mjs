@@ -159,3 +159,11 @@ test("layout survives an orphan whose parent is missing", () => {
   const { pos } = layoutTree([node("a", { parentId: "ghost" })]);
   assert.ok(pos.a);
 });
+
+test("custom node time sets totalSeconds and remainingSeconds", () => {
+  let s = load([node("a", { totalSeconds: 1800, remainingSeconds: 1800 })]);
+  s = reducer(s, { type: "SET_NODE_TIME", id: "a", seconds: 2700, now: 0 }); // 45 minutes
+  assert.equal(get(s, "a").totalSeconds, 2700);
+  assert.equal(get(s, "a").remainingSeconds, 2700);
+});
+

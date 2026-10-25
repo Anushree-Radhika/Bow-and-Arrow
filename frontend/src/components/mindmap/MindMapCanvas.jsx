@@ -1,16 +1,39 @@
 "use client";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Plus } from "lucide-react";
+import {
+  BrainCircuit,
+  Compass,
+  Maximize2,
+  Minimize2,
+  PanelLeft,
+  PanelLeftClose,
+  Plus,
+  RotateCcw,
+  Sparkles,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { sendCommand } from "@/lib/api";
 import {
-  CARD, ROOT_ID, actionsFromCommand, initialState, layoutTree, nodeStates, reducer, QUICK_ADD,
+  CARD,
+  ROOT_ID,
+  actionsFromCommand,
+  initialState,
+  layoutTree,
+  nodeStates,
+  reducer,
 } from "@/lib/mindmap-logic";
+import {
+  getActiveMapId,
+  loadSavedMaps,
+  saveAllMaps,
+  setActiveMapId,
+} from "@/lib/maps-storage";
+import Sidebar from "@/components/navigation/Sidebar";
 import CommandBar from "./CommandBar";
 import GeneratePanel from "./GeneratePanel";
 import MindNode from "./MindNode";
-
-const STORAGE_KEY = "organizer.map.v1";
+import { cn } from "@/lib/utils";
 
 function beep() {
   try {
@@ -45,25 +68,71 @@ export default function MindMapCanvas() {
   const [notice, setNotice] = useState(null);
   const [busy, setBusy] = useState(false);
   const [expanding, setExpanding] = useState(null);
+
+  // Multi-map management
+  const [maps, setMaps] = useState([]);
+  const [activeMapId, setActiveMapIdState] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // Canvas Viewport & Zoom
+  const [zoom, setZoom] = useState(1);
+  const [isPanning, setIsPanning] = useState(false);
+  const containerRef = useRef(null);
+  const panStartRef = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
   const lastAlarm = useRef(0);
 
-  // restore the last session (client only, so server and client markup match on first paint)
+  // Load saved maps on mount
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) dispatch({ type: "HYDRATE", saved: JSON.parse(raw), now: Date.now() });
+      const savedMaps = loadSavedMaps();
+      setMaps(savedMaps);
+
+      const savedActiveId = getActiveMapId();
+      const initialMap = savedMaps.find((m) => m.id === savedActiveId) || savedMaps[0];
+
+      if (initialMap) {
+        setActiveMapIdState(initialMap.id);
+        setActiveMapId(initialMap.id);
+        dispatch({ type: "HYDRATE", saved: initialMap, now: Date.now() });
+      } else {
+        setShowGenerate(true);
+      }
+
+      const savedZoom = localStorage.getItem("organizer.zoom.v1");
+      if (savedZoom) setZoom(Number(savedZoom) || 1);
     } catch {}
     setReady(true);
   }, []);
 
-  useEffect(() => {
-    if (!ready) return;
+  const changeZoom = (newZoom) => {
+    const clamped = Math.max(0.5, Math.min(1.6, Number(newZoom.toFixed(2))));
+    setZoom(clamped);
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ title: state.title, nodes: state.nodes, folderId: state.folderId }));
+      localStorage.setItem("organizer.zoom.v1", String(clamped));
     } catch {}
-  }, [ready, state.title, state.nodes, state.folderId]);
+  };
 
-  // one interval, only while something is running; correctness comes from timestamps, not tick count
+  // Sync active map updates back into maps array
+  useEffect(() => {
+    if (!ready || !activeMapId || !state.title) return;
+    setMaps((prev) => {
+      const idx = prev.findIndex((m) => m.id === activeMapId);
+      if (idx === -1) return prev;
+      const updated = {
+        ...prev[idx],
+        title: state.title,
+        nodes: state.nodes,
+        folderId: state.folderId,
+        updatedAt: Date.now(),
+      };
+      const nextMaps = [...prev];
+      nextMaps[idx] = updated;
+      saveAllMaps(nextMaps);
+      return nextMaps;
+    });
+  }, [ready, state.nodes, state.title, state.folderId, activeMapId]);
+
+  // One interval timer while any node is running
   const anyRunning = state.nodes.some((n) => n.status === "running");
   useEffect(() => {
     if (!anyRunning) return;
@@ -76,6 +145,7 @@ export default function MindMapCanvas() {
     };
   }, [anyRunning]);
 
+  // Alarm when time is up
   useEffect(() => {
     if (!state.alarm || state.alarm.n === lastAlarm.current) return;
     lastAlarm.current = state.alarm.n;
@@ -88,14 +158,20 @@ export default function MindMapCanvas() {
   const onToggleRun = useCallback((id) => dispatch({ type: "TOGGLE_RUN", id, now: now() }), []);
   const onComplete = useCallback((id, value) => dispatch({ type: "SET_COMPLETE", id, value, now: now() }), []);
   const onAdd = useCallback((id, seconds) => dispatch({ type: "ADD_TIME", id, seconds, now: now() }), []);
-  const onReset = useCallback((id) => dispatch({ type: "RESTART", id, now: now() }), []);
+  const onReset = useCallback((id, seconds) => dispatch({ type: "RESTART", id, seconds, now: now() }), []);
+  const onSetTime = useCallback((id, seconds) => dispatch({ type: "SET_NODE_TIME", id, seconds, now: now() }), []);
 
   const run = async (command, spoken = false, expandId = null) => {
     setBusy(true);
     setExpanding(expandId);
     setNotice(null);
     try {
-      const res = await sendCommand({ command, nodes: nodeStates(state.nodes), mapTitle: state.title, folderId: state.folderId });
+      const res = await sendCommand({
+        command,
+        nodes: nodeStates(state.nodes),
+        mapTitle: state.title,
+        folderId: state.folderId,
+      });
       for (const a of actionsFromCommand(res, now())) dispatch(a);
       if (res.action === "GENERATE_NEW_MAP") setShowGenerate(false);
       setNotice({ kind: "ok", text: res.reply });
@@ -109,80 +185,347 @@ export default function MindMapCanvas() {
     }
   };
 
-  const onExpand = useCallback((node) => run(`Expand ${node.title}`, false, node.id), [state.nodes, state.title, state.folderId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const onExpand = useCallback(
+    (node) => run(`Expand ${node.title}`, false, node.id),
+    [state.nodes, state.title, state.folderId]
+  ); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Map generation handler
   const onGenerated = (res) => {
+    const newId = "map_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6);
+    const newMap = {
+      id: newId,
+      title: res.title,
+      nodes: res.nodes,
+      folderId: state.folderId || null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const nextMaps = [newMap, ...maps.filter((m) => m.id !== newId)];
+    setMaps(nextMaps);
+    saveAllMaps(nextMaps);
+    setActiveMapIdState(newId);
+    setActiveMapId(newId);
+
     dispatch({ type: "LOAD_MAP", map: res, now: now() });
     setShowGenerate(false);
-    const bits = [res.grounded ? `Built from ${res.sources.map((s) => s.title).join(", ")}.` : "Built from your prompt.", ...res.warnings];
+
+    const bits = [
+      res.grounded ? `Built from ${res.sources.map((s) => s.title).join(", ")}.` : "Built from your prompt.",
+      ...res.warnings,
+    ];
     setNotice({ kind: "ok", text: bits.join(" ") });
+  };
+
+  // Map selection from sidebar
+  const handleSelectMap = (map) => {
+    setActiveMapIdState(map.id);
+    setActiveMapId(map.id);
+    dispatch({ type: "LOAD_MAP", map, now: now() });
+    setShowGenerate(false);
+  };
+
+  // Map deletion from sidebar
+  const handleDeleteMap = (id) => {
+    const nextMaps = maps.filter((m) => m.id !== id);
+    setMaps(nextMaps);
+    saveAllMaps(nextMaps);
+
+    if (activeMapId === id) {
+      if (nextMaps.length > 0) {
+        handleSelectMap(nextMaps[0]);
+      } else {
+        setActiveMapIdState(null);
+        setActiveMapId(null);
+        dispatch({ type: "LOAD_MAP", map: { title: "", nodes: [] }, now: now() });
+        setShowGenerate(true);
+      }
+    }
+  };
+
+  // Pan & Drag on Eraser-style canvas
+  const handleMouseDown = (e) => {
+    if (
+      e.target.closest("article") ||
+      e.target.closest("button") ||
+      e.target.closest("input") ||
+      e.target.closest("select") ||
+      e.target.closest("form")
+    ) {
+      return;
+    }
+    setIsPanning(true);
+    panStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      scrollLeft: containerRef.current?.scrollLeft || 0,
+      scrollTop: containerRef.current?.scrollTop || 0,
+    };
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isPanning || !containerRef.current) return;
+    const dx = e.clientX - panStartRef.current.x;
+    const dy = e.clientY - panStartRef.current.y;
+    containerRef.current.scrollLeft = panStartRef.current.scrollLeft - dx;
+    containerRef.current.scrollTop = panStartRef.current.scrollTop - dy;
+  };
+
+  const handleMouseUp = () => setIsPanning(false);
+
+  const resetView = () => {
+    changeZoom(1);
+    if (containerRef.current) {
+      containerRef.current.scrollLeft = 0;
+      containerRef.current.scrollTop = 0;
+    }
   };
 
   const { pos, edges, width, height } = useMemo(() => layoutTree(state.nodes), [state.nodes]);
   const done = state.nodes.filter((n) => n.status === "completed").length;
   const hasMap = state.nodes.length > 0;
-  const doneIds = useMemo(() => new Set(state.nodes.filter((n) => n.status === "completed").map((n) => n.id)), [state.nodes]);
+  const doneIds = useMemo(
+    () => new Set(state.nodes.filter((n) => n.status === "completed").map((n) => n.id)),
+    [state.nodes]
+  );
 
   if (!ready) return null;
 
   return (
-    <main className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 p-4">
-      {hasMap && (
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">{state.title}</h1>
-            <p className="text-sm text-muted-foreground">{done} of {state.nodes.length} topics complete</p>
+    <div className="flex h-screen w-full overflow-hidden bg-[#0d0f14] text-slate-100 font-sans">
+      {/* 1. Collapsible Sidebar with saved maps */}
+      <Sidebar
+        maps={maps}
+        activeMapId={activeMapId}
+        onSelectMap={handleSelectMap}
+        onNewMap={() => setShowGenerate(true)}
+        onDeleteMap={handleDeleteMap}
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
+      />
+
+      {/* 2. Main Canvas Workspace Area */}
+      <div className="relative flex flex-1 flex-col overflow-hidden">
+        {/* Top Header Bar */}
+        <header className="flex h-13 w-full shrink-0 items-center justify-between border-b border-[#232732] bg-[#12141a]/90 px-4 py-2 backdrop-blur-md z-30">
+          <div className="flex items-center gap-3 min-w-0">
+            {!sidebarOpen && (
+              <Button
+                variant="ghost"
+                size="iconSm"
+                onClick={() => setSidebarOpen(true)}
+                className="size-8 text-muted-foreground hover:bg-[#1f232c] hover:text-white"
+                title="Open maps sidebar"
+                aria-label="Open maps sidebar"
+              >
+                <PanelLeft className="size-4" />
+              </Button>
+            )}
+
+            {hasMap && !showGenerate ? (
+              <div className="flex items-center gap-2 min-w-0">
+                <h1 className="truncate text-sm font-semibold text-slate-100 max-w-[280px] md:max-w-[420px]">
+                  {state.title}
+                </h1>
+                <Badge
+                  variant="outline"
+                  className="hidden sm:inline-flex border-[#2d3342] bg-[#191c24] text-[11px] text-muted-foreground px-2 py-0.5"
+                >
+                  {done}/{state.nodes.length} topics done
+                </Badge>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-slate-100">
+                  {showGenerate ? "Create Study Map" : "Organizer"}
+                </span>
+              </div>
+            )}
           </div>
-          {!showGenerate && (
-            <Button variant="secondary" size="sm" onClick={() => setShowGenerate(true)}>
-              <Plus /> New map
-            </Button>
-          )}
+
+          {/* Right Header Actions */}
+          <div className="flex items-center gap-2">
+            {!showGenerate && hasMap && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowGenerate(true)}
+                className="h-8 gap-1.5 rounded-lg border border-[#2d3342] bg-[#191c24] text-xs font-medium text-slate-200 hover:bg-[#222631] hover:text-white"
+              >
+                <Plus className="size-3.5" />
+                <span className="hidden sm:inline">New map</span>
+              </Button>
+            )}
+
+            {/* Eraser-style Canvas Controls Bar */}
+            {hasMap && !showGenerate && (
+              <div className="flex items-center gap-1 rounded-lg border border-[#2d3342] bg-[#161922] p-0.5 shadow-sm">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 font-mono text-xs font-bold text-slate-300 hover:bg-[#222631] hover:text-white"
+                  onClick={() => changeZoom(zoom - 0.1)}
+                  title="Zoom Out (A-)"
+                  aria-label="Zoom out"
+                >
+                  A-
+                </Button>
+
+                <button
+                  type="button"
+                  onClick={resetView}
+                  title="Click to reset zoom to 100%"
+                  className="px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground hover:text-white transition-colors"
+                >
+                  {Math.round(zoom * 100)}%
+                </button>
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 font-mono text-xs font-bold text-slate-300 hover:bg-[#222631] hover:text-white"
+                  onClick={() => changeZoom(zoom + 0.1)}
+                  title="Zoom In (A+)"
+                  aria-label="Zoom in"
+                >
+                  A+
+                </Button>
+
+                <div className="mx-0.5 h-3.5 w-px bg-[#2d3342]" />
+
+                <Button
+                  variant="ghost"
+                  size="iconSm"
+                  onClick={resetView}
+                  className="size-7 text-muted-foreground hover:text-white hover:bg-[#222631]"
+                  title="Reset view and pan"
+                  aria-label="Reset view"
+                >
+                  <Compass className="size-3.5" />
+                </Button>
+              </div>
+            )}
+          </div>
         </header>
-      )}
 
-      {(showGenerate || !hasMap) && (
-        <GeneratePanel
-          folderId={state.folderId}
-          onFolderChange={(folderId) => dispatch({ type: "SET_FOLDER", folderId })}
-          onGenerated={onGenerated}
-          onCancel={hasMap ? () => setShowGenerate(false) : undefined}
-        />
-      )}
-
-      {hasMap && !showGenerate && (
-        <div
-          className="relative max-h-[calc(100vh-17rem)] min-h-[380px] overflow-auto rounded-xl border border-carbon-700 bg-carbon-900"
-          role="region" aria-label="Study map" tabIndex={0}
-        >
-          <div className="relative" style={{ width, height }}>
-            <svg className="pointer-events-none absolute inset-0" width={width} height={height} aria-hidden="true">
-              {edges.map((e) => (
-                <path
-                  key={e.id} d={e.d} fill="none" strokeWidth={1.5}
-                  className={doneIds.has(e.to) ? "stroke-done/40" : "stroke-carbon-700"}
-                />
-              ))}
-            </svg>
-
-            <div
-              style={{ left: pos[ROOT_ID].x, top: pos[ROOT_ID].y, width: pos[ROOT_ID].w, height: pos[ROOT_ID].h }}
-              className="absolute flex items-center rounded-xl border border-carbon-700 bg-carbon-800 px-4"
-            >
-              <span className="line-clamp-2 text-sm font-semibold leading-tight">{state.title}</span>
-            </div>
-
-            {state.nodes.map((n) => (
-              <MindNode
-                key={n.id} node={n} box={pos[n.id] ?? { x: 0, y: 0, w: CARD.w, h: CARD.h }} expanding={expanding === n.id}
-                onToggleRun={onToggleRun} onComplete={onComplete} onAdd={onAdd} onReset={onReset} onExpand={onExpand}
+        {/* Workspace Body */}
+        <div className="relative flex flex-1 flex-col overflow-hidden">
+          {/* Generation Modal/Panel */}
+          {(showGenerate || !hasMap) && (
+            <div className="flex flex-1 items-center justify-center p-4 overflow-y-auto z-20">
+              <GeneratePanel
+                folderId={state.folderId}
+                onFolderChange={(folderId) => dispatch({ type: "SET_FOLDER", folderId })}
+                onGenerated={onGenerated}
+                onCancel={hasMap ? () => setShowGenerate(false) : undefined}
               />
-            ))}
+            </div>
+          )}
+
+          {/* Eraser.io Dot-Grid Canvas Viewport */}
+          {hasMap && !showGenerate && (
+            <div
+              ref={containerRef}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+              className={cn(
+                "relative flex-1 w-full overflow-auto select-none",
+                "bg-[#0d0f14] bg-[radial-gradient(#262c38_1.2px,transparent_1.2px)] [background-size:24px_24px]",
+                isPanning ? "cursor-grabbing" : "cursor-grab"
+              )}
+              role="region"
+              aria-label="Study mindmap canvas"
+              tabIndex={0}
+            >
+              <div
+                style={{
+                  width: Math.max(width * zoom + 120, 1000),
+                  height: Math.max(height * zoom + 160, 700),
+                  minWidth: "100%",
+                  minHeight: "100%",
+                }}
+                className="relative p-8"
+              >
+                <div
+                  style={{
+                    width,
+                    height,
+                    transform: `scale(${zoom})`,
+                    transformOrigin: "top left",
+                  }}
+                  className="relative transition-transform duration-75"
+                >
+                  {/* SVG Connector Lines */}
+                  <svg
+                    className="pointer-events-none absolute inset-0"
+                    width={width}
+                    height={height}
+                    aria-hidden="true"
+                  >
+                    {edges.map((e) => {
+                      const isDone = doneIds.has(e.to);
+                      return (
+                        <path
+                          key={e.id}
+                          d={e.d}
+                          fill="none"
+                          strokeWidth={isDone ? 2 : 1.5}
+                          className={cn(
+                            "transition-colors duration-300",
+                            isDone ? "stroke-emerald-500/80" : "stroke-[#2d3342]"
+                          )}
+                        />
+                      );
+                    })}
+                  </svg>
+
+                  {/* Root Node (Study Topic Title) */}
+                  <div
+                    style={{
+                      left: pos[ROOT_ID].x,
+                      top: pos[ROOT_ID].y,
+                      width: pos[ROOT_ID].w,
+                      height: pos[ROOT_ID].h,
+                    }}
+                    className="absolute flex items-center justify-center gap-2 rounded-xl border border-indigo-500/40 bg-indigo-950/70 px-3.5 shadow-lg shadow-indigo-950/50 backdrop-blur"
+                  >
+                    <div className="size-2 rounded-full bg-indigo-400 animate-pulse shrink-0" />
+                    <span className="line-clamp-2 text-xs font-semibold leading-tight text-indigo-100 text-center">
+                      {state.title}
+                    </span>
+                  </div>
+
+                  {/* Compact Mindmap Nodes */}
+                  {state.nodes.map((n) => (
+                    <MindNode
+                      key={n.id}
+                      node={n}
+                      box={pos[n.id] ?? { x: 0, y: 0, w: CARD.w, h: CARD.h }}
+                      expanding={expanding === n.id}
+                      onToggleRun={onToggleRun}
+                      onComplete={onComplete}
+                      onAdd={onAdd}
+                      onReset={onReset}
+                      onExpand={onExpand}
+                      onSetTime={onSetTime}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Floating Command Bar at bottom */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4">
+            <div className="pointer-events-auto w-full max-w-xl">
+              <CommandBar onSubmit={(text, spoken) => run(text, spoken)} busy={busy} notice={notice} />
+            </div>
           </div>
         </div>
-      )}
-
-      <CommandBar onSubmit={(text, spoken) => run(text, spoken)} busy={busy} notice={notice} />
-    </main>
+      </div>
+    </div>
   );
 }

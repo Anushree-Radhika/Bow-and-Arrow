@@ -58,6 +58,7 @@ def _read_pdfs(files: list[UploadFile]) -> list[Chunk]:
 def generate(
     prompt: str = Form(..., min_length=3, max_length=2000),
     folderId: str | None = Form(default=None),
+    nodeMinutes: int = Form(default=30, ge=1, le=480),
     files: list[UploadFile] = File(default=[]),
     user: User = Depends(current_user),
     ai: AI = Depends(get_ai),
@@ -65,7 +66,7 @@ def generate(
 ):
     """Dual engine: PDFs uploaded -> grounded in them (RAG); no PDFs -> prompt-only generation."""
     chunks = _read_pdfs(files)
-    return generate_map(user, prompt.strip(), chunks, _check_uuid(folderId, "folderId"), ai, store)
+    return generate_map(user, prompt.strip(), chunks, _check_uuid(folderId, "folderId"), ai, store, node_minutes=nodeMinutes)
 
 
 @router.post("/command", response_model=CommandOut)

@@ -11,12 +11,15 @@ const mb = (n) => `${(n / 1024 / 1024).toFixed(1)} MB`;
 
 export default function GeneratePanel({ folderId, onFolderChange, onGenerated, onCancel }) {
   const [prompt, setPrompt] = useState("");
+  const [nodeMinutes, setNodeMinutes] = useState(30);
   const [files, setFiles] = useState([]);
   const [folders, setFolders] = useState([]);
   const [newFolder, setNewFolder] = useState(null); // null = not creating
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const fileRef = useRef(null);
+
+  const DURATION_PRESETS = [15, 25, 30, 45, 60];
 
   useEffect(() => {
     listFolders().then(setFolders).catch(() => setError("Couldn't load your folders. You can still build a map."));
@@ -46,7 +49,7 @@ export default function GeneratePanel({ folderId, onFolderChange, onGenerated, o
     setBusy(true);
     setError("");
     try {
-      onGenerated(await generateMap({ prompt: prompt.trim(), files, folderId }));
+      onGenerated(await generateMap({ prompt: prompt.trim(), files, folderId, nodeMinutes: Number(nodeMinutes) || 30 }));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -59,7 +62,7 @@ export default function GeneratePanel({ folderId, onFolderChange, onGenerated, o
       <div>
         <h2 className="text-lg font-semibold tracking-tight">What do you want to study?</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Describe a topic and Organizer builds a map with a 30-minute timer on every node. Add PDFs and the map follows what they cover.
+          Describe a topic and Organizer builds a study map with a {nodeMinutes}-minute timer on every node. Add PDFs and the map follows what they cover.
         </p>
       </div>
 
@@ -68,6 +71,40 @@ export default function GeneratePanel({ folderId, onFolderChange, onGenerated, o
         id="prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} required minLength={3} maxLength={2000}
         placeholder="Graph algorithms for interviews: traversals, shortest paths, strongly connected components"
       />
+
+      <div className="flex flex-col gap-2 rounded-lg border border-carbon-700/60 bg-carbon-900/60 p-3">
+        <div className="flex items-center justify-between text-xs font-medium">
+          <span className="text-foreground">Topic Timer Duration</span>
+          <span className="font-mono text-muted-foreground">{nodeMinutes} min per topic</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {DURATION_PRESETS.map((m) => (
+            <Button
+              key={m}
+              type="button"
+              variant={nodeMinutes === m ? "default" : "secondary"}
+              size="sm"
+              className="h-7 px-2.5 text-xs"
+              onClick={() => setNodeMinutes(m)}
+            >
+              {m}m{m === 25 ? " (Pomodoro)" : m === 30 ? " (Default)" : ""}
+            </Button>
+          ))}
+          <div className="ml-auto flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Custom:</span>
+            <Input
+              type="number"
+              min={1}
+              max={480}
+              value={nodeMinutes}
+              onChange={(e) => setNodeMinutes(Math.max(1, Math.min(480, Number(e.target.value) || 1)))}
+              className="h-7 w-16 px-2 text-center text-xs"
+              aria-label="Custom minutes per topic"
+            />
+            <span className="text-xs text-muted-foreground">min</span>
+          </div>
+        </div>
+      </div>
 
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">

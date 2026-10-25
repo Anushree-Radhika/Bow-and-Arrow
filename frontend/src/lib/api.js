@@ -24,10 +24,11 @@ async function request(path, init = {}) {
 }
 
 /** Dual engine: with PDFs the roadmap is grounded in them; without, it comes from the prompt alone. */
-export function generateMap({ prompt, files = [], folderId }) {
+export function generateMap({ prompt, files = [], folderId, nodeMinutes = 30 }) {
   const form = new FormData();
   form.append("prompt", prompt);
   if (folderId) form.append("folderId", folderId);
+  if (nodeMinutes) form.append("nodeMinutes", String(nodeMinutes));
   for (const f of files) form.append("files", f);
   return request("/api/mindmap/generate", { method: "POST", body: form });
 }

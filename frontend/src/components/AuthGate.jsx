@@ -1,9 +1,19 @@
 "use client";
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { LogOut } from "lucide-react";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
+const AuthContext = createContext({
+  session: null,
+  user: null,
+  signOut: () => {},
+});
+
+export function useAuth() {
+  return useContext(AuthContext);
+}
 
 export default function AuthGate({ children }) {
   const [session, setSession] = useState(undefined); // undefined = still checking
@@ -73,17 +83,14 @@ export default function AuthGate({ children }) {
   }
 
   return (
-    <>
-      <div className="flex items-center justify-between border-b border-border px-4 py-2 text-sm">
-        <span className="font-semibold tracking-tight">Organizer</span>
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <span className="hidden sm:inline">{session.user.email}</span>
-          <Button variant="ghost" size="sm" onClick={() => supabase.auth.signOut()}>
-            <LogOut /> Sign out
-          </Button>
-        </div>
-      </div>
+    <AuthContext.Provider
+      value={{
+        session,
+        user: session.user,
+        signOut: () => supabase.auth.signOut(),
+      }}
+    >
       {children}
-    </>
+    </AuthContext.Provider>
   );
 }

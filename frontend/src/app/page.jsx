@@ -1,3 +1,4 @@
+"use client";
 import AuthGate from "@/components/AuthGate";
 import MindMapCanvas from "@/components/mindmap/MindMapCanvas";
 

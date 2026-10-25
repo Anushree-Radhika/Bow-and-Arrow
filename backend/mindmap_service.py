@@ -56,21 +56,27 @@ def new_id() -> str:
     return "n_" + uuid.uuid4().hex[:8]
 
 
-def make_node(title: str, description: str = "", parent_id: str | None = None, sources: list[str] | None = None) -> MapNode:
+def make_node(
+    title: str,
+    description: str = "",
+    parent_id: str | None = None,
+    sources: list[str] | None = None,
+    node_seconds: int = DEFAULT_NODE_SECONDS,
+) -> MapNode:
     return MapNode(
         id=new_id(),
         title=title.strip()[:80],
         description=description.strip()[:300],
         parentId=parent_id,
-        totalSeconds=DEFAULT_NODE_SECONDS,
-        remainingSeconds=DEFAULT_NODE_SECONDS,
+        totalSeconds=node_seconds,
+        remainingSeconds=node_seconds,
         status="idle",
         sources=sources or [],
     )
 
 
-def nodes_from_gen(gen: GenMap, ctx: list[Ctx]) -> list[MapNode]:
-    """Turn the LLM's draft into valid, bounded, acyclic nodes with fixed timers."""
+def nodes_from_gen(gen: GenMap, ctx: list[Ctx], node_seconds: int = DEFAULT_NODE_SECONDS) -> list[MapNode]:
+    """Turn the LLM's draft into valid, bounded, acyclic nodes with configurable timers."""
     drafts: dict[str, GenNode] = {}
     for g in gen.nodes:
         if g.key and g.title.strip() and g.key not in drafts and len(drafts) < MAX_NODES:
@@ -112,7 +118,13 @@ def nodes_from_gen(gen: GenMap, ctx: list[Ctx]) -> list[MapNode]:
     out: list[MapNode] = []
     for k, g in drafts.items():
         refs = [ctx[r - 1].label for r in dict.fromkeys(g.sourceRefs) if 1 <= r <= len(ctx)]
-        node = make_node(g.title, g.description, ids[parent[k]] if parent[k] else None, list(dict.fromkeys(refs)))
+        node = make_node(
+            g.title,
+            g.description,
+            ids[parent[k]] if parent[k] else None,
+            list(dict.fromkeys(refs)),
+            node_seconds=node_seconds,
+        )
         node.id = ids[k]
         out.append(node)
     return out
@@ -178,9 +190,9 @@ def retrieve_folder_context(user: User, query: str, folder_id: str | None, ai: A
     return [Ctx(r["source_title"], r.get("page_number"), r["content"]) for r in rows]
 
 
-def build_roadmap(prompt: str, ctx: list[Ctx], ai: AI) -> MapOut:
+def build_roadmap(prompt: str, ctx: list[Ctx], ai: AI, node_seconds: int = DEFAULT_NODE_SECONDS) -> MapOut:
     gen = ai.generate(_GEN_SYSTEM, f"Study request: {prompt}{_ctx_block(ctx)}", GenMap, GenMap)
-    nodes = nodes_from_gen(gen, ctx)
+    nodes = nodes_from_gen(gen, ctx, node_seconds=node_seconds)
     if not nodes:
         raise HTTPException(502, "The model returned an empty roadmap. Try rephrasing your request.")
     return MapOut(title=gen.title.strip()[:100] or prompt[:100], nodes=nodes)
@@ -193,9 +205,11 @@ def generate_map(
     folder_id: str | None,
     ai: AI,
     store: KnowledgeStore,
+    node_minutes: int = 30,
 ) -> GenerateOut:
     warnings: list[str] = []
     ctx: list[Ctx] = []
+    node_seconds = max(60, min(8 * 3600, int(node_minutes) * 60))
 
     if chunks:  # ---- engine 1: grounded in the uploaded PDFs
         vectors = ai.embed_documents([c.text for c in chunks])
@@ -225,7 +239,7 @@ def generate_map(
         if not ctx and not warnings:
             warnings.append("Nothing in that folder matched your prompt, so the roadmap uses your prompt alone.")
 
-    roadmap = build_roadmap(prompt, ctx, ai)
+    roadmap = build_roadmap(prompt, ctx, ai, node_seconds=node_seconds)
     return GenerateOut(
         **roadmap.model_dump(), grounded=bool(ctx), sources=source_infos(ctx), warnings=warnings
     )
@@ -287,7 +301,15 @@ def expand_node(
             continue
         taken.add(t.lower())
         refs = [ctx[r - 1].label for r in dict.fromkeys(g.sourceRefs) if 1 <= r <= len(ctx)]
-        kids.append(make_node(t, g.description, target.id, list(dict.fromkeys(refs))))
+        kids.append(
+            make_node(
+                t,
+                g.description,
+                target.id,
+                list(dict.fromkeys(refs)),
+                node_seconds=target.totalSeconds or DEFAULT_NODE_SECONDS,
+            )
+        )
     if not kids:
         raise HTTPException(422, f"I couldn't find new sub-topics for {target.title}.")
     return kids, ctx
@@ -318,9 +340,10 @@ def run_command(body: CommandIn, user: User, ai: AI, store: KnowledgeStore) -> C
         return CommandOut(action=action, targetNodeId=target.id, reply=reply or f"Marked {target.title} complete.")
 
     if action == ActionType.RESTART:
+        mins = (target.totalSeconds or DEFAULT_NODE_SECONDS) // 60
         return CommandOut(
             action=action, targetNodeId=target.id,
-            reply=reply or f"Reset {target.title} to {DEFAULT_NODE_SECONDS // 60} minutes.",
+            reply=reply or f"Reset {target.title} to {mins} minutes.",
         )
 
     if action == ActionType.ADD_TIME:
