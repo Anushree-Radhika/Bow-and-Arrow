@@ -7,6 +7,7 @@
 [![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL%20%2B%20pgvector-3ECF8E.svg?logo=supabase&logoColor=white)](https://supabase.com)
 [![LangChain](https://img.shields.io/badge/LangChain-1.0+-blue.svg?logo=langchain&logoColor=white)](https://www.langchain.com)
 [![PyMuPDF](https://img.shields.io/badge/PyMuPDF-fitz-red.svg)](https://pymupdf.readthedocs.io)
+[![Whisper](https://img.shields.io/badge/OpenAI%20Whisper-large--v3--turbo-orange.svg)](https://openai.com/research/whisper)
 
 ---
 
@@ -33,8 +34,8 @@ Modern learners, students, and engineers face severe **cognitive overload** when
 3. **Interactive 2D Infinite Canvas**:
    - Eraser-style canvas with 2D pan, zoom, visual dependency edges, and collapsible control panels.
    - Per-node **Checkpoints & Notes Store** using interactive modal dialogs for active recall.
-4. **Natural Language & Voice Command Bar**:
-   - Speak or type commands (e.g., *"Mark Dijkstra complete"*, *"Add 15 minutes to BFS"*, *"Expand Tarjan's algorithm"*), parsed and executed by LLM tool callers with fuzzy phonetic matching.
+4. **Hands-Free Whisper Voice Agent**:
+   - Speak commands (e.g., *"Mark Dijkstra complete"*, *"Add 15 minutes to BFS"*, *"Expand Tarjan's algorithm"*), transcribed via **OpenAI Whisper (`whisper-large-v3-turbo`)** with dynamic roadmap vocabulary priming and executed by structured LLM tool callers.
 5. **Zero Local Storage Fragility — 100% Supabase Cloud Storage**:
    - Every roadmap, node state, timer tick, note, and progress metric is saved directly to **Supabase PostgreSQL** with multi-tenant **Row-Level Security (RLS)**. No data is lost when closing tabs, and sessions sync seamlessly across any device or browser.
 
@@ -53,7 +54,7 @@ organizer/
 │   │   ├── api/v1/
 │   │   │   ├── health.py            # API health checks & dependency statuses
 │   │   │   ├── maps.py              # Authenticated REST endpoints for study roadmap CRUD
-│   │   │   └── mindmap.py           # Generation (multipart PDF/prompt) & conversational command endpoints
+│   │   │   └── mindmap.py           # Generation (multipart PDF/prompt), Whisper transcribe & command endpoints
 │   │   ├── core/
 │   │   │   ├── config.py            # Pydantic v2 application settings & environment bindings
 │   │   │   └── security.py          # Supabase JWT authentication & session verification
@@ -70,7 +71,8 @@ organizer/
 │   │   │   ├── map_storage_service.py # Pure Supabase PostgREST map persistence service
 │   │   │   ├── mindmap_service.py   # RAG pipeline orchestration, topology repair & command executor
 │   │   │   ├── pdf_service.py       # PyMuPdfReader & LangChain RecursiveCharacterTextSplitter
-│   │   │   └── storage_service.py   # Vector store adapter for Supabase RPC & batch embeddings
+│   │   │   ├── storage_service.py   # Vector store adapter for Supabase RPC & batch embeddings
+│   │   │   └── voice_service.py     # Groq Whisper-large-v3-turbo transcription engine with context priming
 │   │   └── main.py                  # FastAPI application factory, CORS middleware, router registration
 │   ├── main.py                      # Uvicorn entrypoint shim
 │   └── requirements.txt             # Pinned backend dependencies
@@ -83,7 +85,7 @@ organizer/
     │   ├── components/
     │   │   ├── AuthGate.jsx         # Supabase auth wrapper & session isolation provider
     │   │   ├── mindmap/
-    │   │   │   ├── CommandBar.jsx   # Natural language & voice speech recognition command input
+    │   │   │   ├── CommandBar.jsx   # MediaRecorder voice input with Whisper transcription & recording states
     │   │   │   ├── MindMapCanvas.jsx# 2D infinite canvas, viewport pan/zoom, auto-save engine
     │   │   │   ├── MindNode.jsx     # Interactive study card (timers, progress, citation badges)
     │   │   │   └── NodeNotesDialog.jsx # Modal dialog for point-wise topic notes & checkpoints
@@ -91,7 +93,7 @@ organizer/
     │   │   │   └── Sidebar.jsx      # Multi-map library, roadmap creator, PDF drag-and-drop
     │   │   └── ui/                  # Accessible UI component library (Dialog, Button, Badge, Icons)
     │   └── lib/
-    │       ├── api.js               # Authenticated API fetch client with Supabase JWT bearer injection
+    │       ├── api.js               # Authenticated API client with transcribeVoice & Supabase JWT injection
     │       ├── maps-storage.js      # Supabase cloud persistence layer with beforeunload tab-flush
     │       ├── mindmap-logic.js     # Pure state reducer for drift-free timestamped timers & graph topology
     │       └── supabase.js          # Supabase client singleton & auth token accessor
@@ -182,8 +184,10 @@ Voice-to-text engines often mishear complex technical algorithms, medical terms,
 - Topic titles and spoken words are compared against candidate node tokens with a similarity threshold (`ratio >= 0.8`).
 - Allows seamless hands-free control even with imperfect speech recognition transcripts.
 
-#### 3. Closed-Loop Bidirectional Voice Feedback
-- **Speech-to-Text (STT)**: Uses the browser's native `SpeechRecognition` / `webkitSpeechRecognition` with interim live transcription and automatic trigger on speech completion (`isFinal`).
+#### 3. Closed-Loop Bidirectional Voice Feedback with Whisper & Prompt Priming
+- **Speech-to-Text (STT) via Whisper-large-v3-turbo**: Audio is recorded using the standard browser `MediaRecorder` API (`audio/webm`) and dispatched to the `/api/mindmap/transcribe` endpoint powered by Groq's Whisper engine with sub-250ms latency.
+- **Active Vocabulary Priming**: The active roadmap topic titles (e.g., *"Dijkstra"*, *"Tarjan"*, *"Bellman-Ford"*, *"BFS"*) are dynamically injected as Whisper's prompt context, achieving near-perfect recognition accuracy even with fast speech or accented pronunciation.
+- **Universal Browser Compatibility**: By relying on standard `navigator.mediaDevices` audio streams rather than vendor-locked Web Speech engines, voice controls work across **all modern browsers** including Firefox, Chrome, Safari, and Edge.
 - **Text-to-Speech (TTS)**: When commands are initiated via voice (`spoken = true`), the response from the LLM is spoken back through the browser's `window.speechSynthesis` (e.g., *"Added 20 minutes to Dijkstra."* or *"Added 4 sub-topics under Tarjan."*), providing audio confirmation without requiring the learner to look at the screen.
 
 ---
@@ -195,10 +199,11 @@ Voice-to-text engines often mishear complex technical algorithms, medical terms,
 - **Styling**: [Tailwind CSS](https://tailwindcss.com) with tailored dark slate palette, glassmorphism, and radial canvas backgrounds
 - **Component Primitives**: [Radix UI](https://www.radix-ui.com/) accessible primitives (`Dialog`, `Checkbox`, `Slot`)
 - **Icons**: [Lucide React](https://lucide.dev) & bespoke SVG `ArchersBowIcon`
-- **Speech Recognition**: Web Speech API for voice recognition and synthesized audio feedback
+- **Audio Capture & Speech**: Standard `MediaRecorder` API for cross-browser microphone streaming & Web Speech Synthesis for spoken feedback
 
 ### Backend
 - **Framework**: [FastAPI](https://fastapi.tiangolo.com) 0.110+ (Asynchronous Python 3.11+)
+- **Voice Transcription**: [OpenAI Whisper](https://openai.com/research/whisper) (`whisper-large-v3-turbo` via Groq) with active roadmap vocabulary priming (<250ms latency)
 - **Document Ingestion**: [PyMuPDF](https://pymupdf.readthedocs.io) (`fitz` 2.0+)
 - **RAG & Chunking**: [LangChain Core](https://python.langchain.com) & `langchain-text-splitters`
 - **Data Validation**: [Pydantic v2](https://docs.pydantic.dev/) for strict DTO schemas and JSON validation
@@ -231,8 +236,8 @@ Voice-to-text engines often mishear complex technical algorithms, medical terms,
 
 ### Current Limitations
 1. **Scanned PDFs Without OCR**: PyMuPDF extracts selectable vector text. Scanned document images without embedded OCR text layers must be processed through OCR before upload.
-2. **Page Count Threshold**: Default document length limit is set to 120 pages (`MAX_PDF_PAGES=120`) to prevent API timeouts and respect free-tier rate limits.
-3. **Browser Voice Support**: Voice recognition utilizes the native Web Speech API, which requires browser support (supported in Chrome, Edge, Safari; limited in Firefox).
+2. **Page Count Threshold**: Default document length limit is configured to 400 pages (`MAX_PDF_PAGES=400`).
+3. **Microphone Permissions**: Hands-free voice features require granting standard browser microphone access.
 
 ### Future Roadmap
 - [ ] **On-Device OCR**: Integration of OCR engine (PaddleOCR / Tesseract) for scanned document image parsing.
