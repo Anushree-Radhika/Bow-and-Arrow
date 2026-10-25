@@ -98,6 +98,13 @@ export function reducer(state, action) {
       }));
     }
 
+    case "SET_NODE_NOTES": {
+      return patch(state, action.id, (n) => ({
+        notes: action.notes !== undefined ? action.notes : n.notes,
+        points: action.points !== undefined ? action.points : n.points,
+      }));
+    }
+
     case "RESTART": {
       // "Scratch reset": back to fresh timer, not started, not completed
       const s = tick(state, action.now);
@@ -159,7 +166,7 @@ export const isTimeUp = (n) => n.status !== "completed" && n.remainingSeconds ==
 
 // ------------------------------------------------------------------ layout
 
-export const CARD = { w: 220, h: 84, gapX: 64, gapY: 20, pad: 32, rootW: 180, rootH: 46 };
+export const CARD = { w: 236, h: 88, gapX: 64, gapY: 20, pad: 32, rootW: 180, rootH: 46 };
 export const ROOT_ID = "__root__";
 
 /** Left-to-right tidy tree. Leaves take consecutive rows; parents centre on their children. */

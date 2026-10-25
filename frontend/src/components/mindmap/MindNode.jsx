@@ -11,6 +11,7 @@ import {
   Play,
   Plus,
   RotateCcw,
+  StickyNote,
   X,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -30,6 +31,7 @@ function MindNode({
   onReset,
   onExpand,
   onSetTime,
+  onOpenNotes,
 }) {
   const running = node.status === "running";
   const done = node.status === "completed";
@@ -166,6 +168,22 @@ function MindNode({
               {running ? <Pause className="size-2.5 fill-current" /> : <Play className="size-2.5 fill-current ml-0.5" />}
             </Button>
           </div>
+
+          {/* Notes & Points Store Button */}
+          <button
+            type="button"
+            onClick={() => onOpenNotes?.(node)}
+            title="Open topic notes & key points store"
+            className={cn(
+              "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium transition-all shrink-0",
+              (node.points?.length > 0 || node.notes)
+                ? "bg-indigo-950/80 text-indigo-300 border border-indigo-500/40 shadow-sm"
+                : "text-muted-foreground hover:text-white hover:bg-[#252a36] border border-transparent"
+            )}
+          >
+            <StickyNote className="size-2.5 text-indigo-400" />
+            <span>{node.points?.length > 0 ? `${node.points.length} pts` : "Notes"}</span>
+          </button>
 
           {/* Micro Action Buttons (visible on group hover) */}
           <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">

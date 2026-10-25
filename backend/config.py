@@ -11,9 +11,25 @@ class Settings:
     supabase_url: str = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_anon_key: str = os.getenv("SUPABASE_ANON_KEY", "")
     gemini_api_key: str = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
-    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    gemini_fallback_models: list[str] = field(
+        default_factory=lambda: [
+            m.strip()
+            for m in os.getenv(
+                "GEMINI_FALLBACK_MODELS",
+                "gemini-flash-lite-latest,gemini-3.5-flash,gemini-3.8-flash,gemini-flash-latest",
+            ).split(",")
+            if m.strip()
+        ]
+    )
     gemini_embed_model: str = os.getenv("GEMINI_EMBED_MODEL", "gemini-embedding-001")
     embed_dim: int = 768  # must match vector(768) in the migration
+
+    # Free-tier fallback providers (Groq: https://console.groq.com | OpenRouter: https://openrouter.ai)
+    groq_api_key: str = os.getenv("GROQ_API_KEY", "").strip()
+    groq_model: str = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip()
+    openrouter_api_key: str = os.getenv("OPENROUTER_API_KEY", "").strip()
+    openrouter_model: str = os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3.5-lightning:free").strip()
 
     max_files: int = int(os.getenv("MAX_FILES", "5"))
     max_pdf_mb: int = int(os.getenv("MAX_PDF_MB", "15"))

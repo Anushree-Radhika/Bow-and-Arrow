@@ -1,14 +1,11 @@
 "use client";
+
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   BrainCircuit,
   Compass,
-  Maximize2,
-  Minimize2,
   PanelLeft,
-  PanelLeftClose,
   Plus,
-  RotateCcw,
   Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,8 +28,8 @@ import {
 } from "@/lib/maps-storage";
 import Sidebar from "@/components/navigation/Sidebar";
 import CommandBar from "./CommandBar";
-import GeneratePanel from "./GeneratePanel";
 import MindNode from "./MindNode";
+import NodeNotesDialog from "./NodeNotesDialog";
 import { cn } from "@/lib/utils";
 
 function beep() {
@@ -51,28 +48,30 @@ function beep() {
       osc.stop(ctx.currentTime + t + 0.24);
     });
     setTimeout(() => ctx.close(), 1500);
-  } catch {}
+  } catch { }
 }
 
 function speak(text) {
   try {
     window.speechSynthesis?.cancel();
     window.speechSynthesis?.speak(new SpeechSynthesisUtterance(text));
-  } catch {}
+  } catch { }
 }
 
 export default function MindMapCanvas() {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const [ready, setReady] = useState(false);
-  const [showGenerate, setShowGenerate] = useState(false);
   const [notice, setNotice] = useState(null);
   const [busy, setBusy] = useState(false);
   const [expanding, setExpanding] = useState(null);
 
-  // Multi-map management
+  // Multi-map management & Left Drawer State
   const [maps, setMaps] = useState([]);
   const [activeMapId, setActiveMapIdState] = useState(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [isPinned, setIsPinned] = useState(false);
+  const [drawerTab, setDrawerTab] = useState("maps"); // "maps" | "create" | "engine"
+  const [activeNotesNodeId, setActiveNotesNodeId] = useState(null);
 
   // Canvas Viewport & Zoom
   const [zoom, setZoom] = useState(1);
@@ -95,12 +94,13 @@ export default function MindMapCanvas() {
         setActiveMapId(initialMap.id);
         dispatch({ type: "HYDRATE", saved: initialMap, now: Date.now() });
       } else {
-        setShowGenerate(true);
+        setDrawerOpen(true);
+        setDrawerTab("create");
       }
 
       const savedZoom = localStorage.getItem("organizer.zoom.v1");
       if (savedZoom) setZoom(Number(savedZoom) || 1);
-    } catch {}
+    } catch { }
     setReady(true);
   }, []);
 
@@ -109,7 +109,7 @@ export default function MindMapCanvas() {
     setZoom(clamped);
     try {
       localStorage.setItem("organizer.zoom.v1", String(clamped));
-    } catch {}
+    } catch { }
   };
 
   // Sync active map updates back into maps array
@@ -160,6 +160,7 @@ export default function MindMapCanvas() {
   const onAdd = useCallback((id, seconds) => dispatch({ type: "ADD_TIME", id, seconds, now: now() }), []);
   const onReset = useCallback((id, seconds) => dispatch({ type: "RESTART", id, seconds, now: now() }), []);
   const onSetTime = useCallback((id, seconds) => dispatch({ type: "SET_NODE_TIME", id, seconds, now: now() }), []);
+  const onSaveNotes = useCallback((id, notes, points) => dispatch({ type: "SET_NODE_NOTES", id, notes, points, now: now() }), []);
 
   const run = async (command, spoken = false, expandId = null) => {
     setBusy(true);
@@ -173,7 +174,6 @@ export default function MindMapCanvas() {
         folderId: state.folderId,
       });
       for (const a of actionsFromCommand(res, now())) dispatch(a);
-      if (res.action === "GENERATE_NEW_MAP") setShowGenerate(false);
       setNotice({ kind: "ok", text: res.reply });
       if (spoken) speak(res.reply);
     } catch (e) {
@@ -209,7 +209,6 @@ export default function MindMapCanvas() {
     setActiveMapId(newId);
 
     dispatch({ type: "LOAD_MAP", map: res, now: now() });
-    setShowGenerate(false);
 
     const bits = [
       res.grounded ? `Built from ${res.sources.map((s) => s.title).join(", ")}.` : "Built from your prompt.",
@@ -218,15 +217,14 @@ export default function MindMapCanvas() {
     setNotice({ kind: "ok", text: bits.join(" ") });
   };
 
-  // Map selection from sidebar
+  // Map selection from drawer
   const handleSelectMap = (map) => {
     setActiveMapIdState(map.id);
     setActiveMapId(map.id);
     dispatch({ type: "LOAD_MAP", map, now: now() });
-    setShowGenerate(false);
   };
 
-  // Map deletion from sidebar
+  // Map deletion
   const handleDeleteMap = (id) => {
     const nextMaps = maps.filter((m) => m.id !== id);
     setMaps(nextMaps);
@@ -239,7 +237,8 @@ export default function MindMapCanvas() {
         setActiveMapIdState(null);
         setActiveMapId(null);
         dispatch({ type: "LOAD_MAP", map: { title: "", nodes: [] }, now: now() });
-        setShowGenerate(true);
+        setDrawerOpen(true);
+        setDrawerTab("create");
       }
     }
   };
@@ -294,36 +293,47 @@ export default function MindMapCanvas() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[#0d0f14] text-slate-100 font-sans">
-      {/* 1. Collapsible Sidebar with saved maps */}
+      {/* 1. Left Drawer (Slides out smoothly over canvas) */}
       <Sidebar
         maps={maps}
         activeMapId={activeMapId}
         onSelectMap={handleSelectMap}
-        onNewMap={() => setShowGenerate(true)}
         onDeleteMap={handleDeleteMap}
-        isOpen={sidebarOpen}
-        onToggle={() => setSidebarOpen(!sidebarOpen)}
+        onGenerated={onGenerated}
+        folderId={state.folderId}
+        onFolderChange={(folderId) => dispatch({ type: "SET_FOLDER", folderId })}
+        isOpen={drawerOpen}
+        onToggle={() => setDrawerOpen(!drawerOpen)}
+        zoom={zoom}
+        onChangeZoom={changeZoom}
+        onResetView={resetView}
+        activeTab={drawerTab}
+        onTabChange={setDrawerTab}
+        isPinned={isPinned}
+        onTogglePin={() => setIsPinned(!isPinned)}
       />
 
       {/* 2. Main Canvas Workspace Area */}
-      <div className="relative flex flex-1 flex-col overflow-hidden">
+      <div className="relative flex flex-1 flex-col overflow-hidden w-full">
         {/* Top Header Bar */}
         <header className="flex h-13 w-full shrink-0 items-center justify-between border-b border-[#232732] bg-[#12141a]/90 px-4 py-2 backdrop-blur-md z-30">
           <div className="flex items-center gap-3 min-w-0">
-            {!sidebarOpen && (
-              <Button
-                variant="ghost"
-                size="iconSm"
-                onClick={() => setSidebarOpen(true)}
-                className="size-8 text-muted-foreground hover:bg-[#1f232c] hover:text-white"
-                title="Open maps sidebar"
-                aria-label="Open maps sidebar"
-              >
-                <PanelLeft className="size-4" />
-              </Button>
-            )}
+            {/* Left Drawer Trigger Button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setDrawerOpen(true)}
+              className="h-8 gap-2 rounded-xl border-[#2d3342] bg-[#161922] text-xs font-semibold text-slate-200 hover:bg-[#202430] hover:text-white shadow-sm"
+              title="Open roadmaps drawer"
+            >
+              <PanelLeft className="size-4 text-indigo-400" />
+              <span>Study Maps</span>
+              <Badge className="border border-[#2d3342] bg-[#101217] text-[10px] text-indigo-300 px-1.5 py-0 font-mono">
+                {maps.length}
+              </Badge>
+            </Button>
 
-            {hasMap && !showGenerate ? (
+            {hasMap ? (
               <div className="flex items-center gap-2 min-w-0">
                 <h1 className="truncate text-sm font-semibold text-slate-100 max-w-[280px] md:max-w-[420px]">
                   {state.title}
@@ -337,29 +347,30 @@ export default function MindMapCanvas() {
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-slate-100">
-                  {showGenerate ? "Create Study Map" : "Organizer"}
-                </span>
+                <span className="text-sm font-semibold text-slate-100">Organizer</span>
+                <span className="text-xs text-muted-foreground hidden sm:inline">• Study Canvas</span>
               </div>
             )}
           </div>
 
           {/* Right Header Actions */}
           <div className="flex items-center gap-2">
-            {!showGenerate && hasMap && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setShowGenerate(true)}
-                className="h-8 gap-1.5 rounded-lg border border-[#2d3342] bg-[#191c24] text-xs font-medium text-slate-200 hover:bg-[#222631] hover:text-white"
-              >
-                <Plus className="size-3.5" />
-                <span className="hidden sm:inline">New map</span>
-              </Button>
-            )}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setDrawerOpen(true);
+                setDrawerTab("create");
+              }}
+              className="h-8 gap-1.5 rounded-lg border border-[#2d3342] bg-[#191c24] text-xs font-medium text-slate-200 hover:bg-[#222631] hover:text-white shadow-sm"
+              title="Create new roadmap"
+            >
+              <Plus className="size-3.5 text-indigo-400" />
+              <span className="hidden sm:inline">New map</span>
+            </Button>
 
-            {/* Eraser-style Canvas Controls Bar */}
-            {hasMap && !showGenerate && (
+            {/* Eraser-style Canvas Zoom Controls */}
+            {hasMap && (
               <div className="flex items-center gap-1 rounded-lg border border-[#2d3342] bg-[#161922] p-0.5 shadow-sm">
                 <Button
                   variant="ghost"
@@ -410,21 +421,9 @@ export default function MindMapCanvas() {
         </header>
 
         {/* Workspace Body */}
-        <div className="relative flex flex-1 flex-col overflow-hidden">
-          {/* Generation Modal/Panel */}
-          {(showGenerate || !hasMap) && (
-            <div className="flex flex-1 items-center justify-center p-4 overflow-y-auto z-20">
-              <GeneratePanel
-                folderId={state.folderId}
-                onFolderChange={(folderId) => dispatch({ type: "SET_FOLDER", folderId })}
-                onGenerated={onGenerated}
-                onCancel={hasMap ? () => setShowGenerate(false) : undefined}
-              />
-            </div>
-          )}
-
+        <div className="relative flex flex-1 flex-col overflow-hidden w-full">
           {/* Eraser.io Dot-Grid Canvas Viewport */}
-          {hasMap && !showGenerate && (
+          {hasMap ? (
             <div
               ref={containerRef}
               onMouseDown={handleMouseDown}
@@ -511,8 +510,51 @@ export default function MindMapCanvas() {
                       onReset={onReset}
                       onExpand={onExpand}
                       onSetTime={onSetTime}
+                      onOpenNotes={(node) => setActiveNotesNodeId(node.id)}
                     />
                   ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Welcome / Empty Canvas State */
+            <div className="flex flex-1 flex-col items-center justify-center p-6 text-center bg-[#0d0f14] bg-[radial-gradient(#262c38_1.2px,transparent_1.2px)] [background-size:24px_24px]">
+              <div className="max-w-md space-y-4 rounded-2xl border border-[#232732] bg-[#12141a]/90 p-8 backdrop-blur shadow-2xl">
+                <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30">
+                  <BrainCircuit className="size-6" />
+                </div>
+                <div className="space-y-1.5">
+                  <h2 className="text-base font-bold text-white tracking-tight">
+                    Welcome to Organizer
+                  </h2>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Open the study drawer from the left to select an existing roadmap or generate a brand new interactive curriculum.
+                  </p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
+                  <Button
+                    onClick={() => {
+                      setDrawerOpen(true);
+                      setDrawerTab("maps");
+                    }}
+                    variant="outline"
+                    className="w-full sm:w-auto gap-2 rounded-xl border-[#2d3342] bg-[#1a1d26] text-xs font-medium text-slate-200 hover:bg-[#202430] hover:text-white"
+                  >
+                    <PanelLeft className="size-3.5 text-indigo-400" />
+                    <span>View Maps ({maps.length})</span>
+                  </Button>
+
+                  <Button
+                    onClick={() => {
+                      setDrawerOpen(true);
+                      setDrawerTab("create");
+                    }}
+                    className="w-full sm:w-auto gap-2 rounded-xl bg-indigo-600 text-xs font-medium text-white hover:bg-indigo-500 shadow-md shadow-indigo-600/25"
+                  >
+                    <Sparkles className="size-3.5" />
+                    <span>Create New Roadmap</span>
+                  </Button>
                 </div>
               </div>
             </div>
