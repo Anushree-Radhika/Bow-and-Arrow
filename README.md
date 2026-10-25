@@ -149,6 +149,45 @@ Bow and Arrow implements an **authentic, traditional RAG pipeline**:
 
 ---
 
+## 🎙️ Voice Agentic Capabilities & Command System
+
+Bow and Arrow incorporates a hands-free, bidirectional voice agent that allows learners to control study sessions, manipulate the canvas graph, query knowledge, and manage time-boxing purely through spoken natural language.
+
+### Supported Voice Agentic Actions
+
+The system supports **5 core voice agentic actions**, orchestrated via structured LLM decisions and client-side graph mutations:
+
+| # | Action Type | Intent | Example Voice Commands | State & Graph Behavior |
+|---|---|---|---|---|
+| **1** | `ADD_TIME` | **Timer Extension** | *"Add 20 mins to this node"*<br>*"Give me 15 more minutes on Dijkstra"*<br>*"Add 1 hour to Dynamic Programming"*<br>*"Extend by 10 minutes"* | • Parses natural language time units into seconds (clamped between 60s and 8 hours)<br>• Increments `remainingSeconds` and `totalSeconds`<br>• Real-time countdown clock updates on node card<br>• Automatically syncs to Supabase |
+| **2** | `COMPLETE` | **Milestone Checkoff** | *"Tarjan completed"*<br>*"I'm done with BFS"*<br>*"Mark Dijkstra as done"*<br>*"Finish this node"* | • Sets target node status to `completed`<br>• Halts active countdown interval timer<br>• Visually styles card with emerald completion badge<br>• Updates study progress percentage and persists state |
+| **3** | `RESTART` | **Timer Scratch Reset** | *"Restart BFS"*<br>*"Reset Dijkstra timer"*<br>*"Start over on Graph Traversals"*<br>*"Reset this node"* | • Reverts `remainingSeconds` back to `totalSeconds` (or default 30 min)<br>• Resets node status to `idle`<br>• Clears any expired alarm states |
+| **4** | `EXPAND` | **Sub-topic Decomposition (RAG)** | *"Expand Tarjan"*<br>*"Go deeper on DFS"*<br>*"Break down Dijkstra into subtopics"*<br>*"Elaborate on this node"* | • Queries the vector store (`pgvector`) for contextual passages matching the topic<br>• Generates 3 to 6 concrete sub-topics grounded in source notes<br>• Attaches children under the parent node on the canvas<br>• Prevents duplicates and preserves acyclic tree structure |
+| **5** | `GENERATE_NEW_MAP` | **Autonomous Roadmap Synthesis** | *"Build a roadmap for Distributed Systems"*<br>*"Create a study map on Quantum Computing"*<br>*"Generate a guide for Operating Systems"* | • Extracts study topic into generative prompt<br>• Retrieves relevant user notes if a folder is active<br>• Synthesizes complete 3-tier hierarchical curriculum<br>• Automatically provisions new map ID, sets pan/zoom, and saves to database |
+
+---
+
+### Intelligent Voice Subsystems
+
+#### 1. Context-Aware "This Node" Resolution
+When a learner issues relative voice commands such as *"add 20 mins to this node"* or *"I'm done with this node"*, the agent does not require you to name the topic explicitly:
+- The frontend serializes the runtime state of all active nodes (`id`, `title`, `status`, `remainingSeconds`).
+- The backend identifies the currently `running` or active node and resolves it as the `targetNodeId`.
+- If no node is currently running or multiple nodes are ambiguous, the agent responds with conversational voice guidance: *"How much time should I add? For example, 'add 30 minutes to Dijkstra'."*
+
+#### 2. Phonetic Typo Tolerance & Fuzzy Matching
+Voice-to-text engines often mishear complex technical algorithms, medical terms, and mathematical names (e.g., *"tarzan"* for *"Tarjan"*, *"die extra"* for *"Dijkstra"*, *"cruskal"* for *"Kruskal"*).
+- The backend implements a fuzzy phonetic matching fallback via Python's `difflib.SequenceMatcher`:
+- Stop words (`"the"`, `"and"`, `"add"`, `"algorithm"`, `"problems"`) are stripped.
+- Topic titles and spoken words are compared against candidate node tokens with a similarity threshold (`ratio >= 0.8`).
+- Allows seamless hands-free control even with imperfect speech recognition transcripts.
+
+#### 3. Closed-Loop Bidirectional Voice Feedback
+- **Speech-to-Text (STT)**: Uses the browser's native `SpeechRecognition` / `webkitSpeechRecognition` with interim live transcription and automatic trigger on speech completion (`isFinal`).
+- **Text-to-Speech (TTS)**: When commands are initiated via voice (`spoken = true`), the response from the LLM is spoken back through the browser's `window.speechSynthesis` (e.g., *"Added 20 minutes to Dijkstra."* or *"Added 4 sub-topics under Tarjan."*), providing audio confirmation without requiring the learner to look at the screen.
+
+---
+
 ## 🛠️ Tech Stack
 
 ### Frontend
