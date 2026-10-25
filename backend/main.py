@@ -14,6 +14,11 @@ app.add_middleware(
 app.include_router(mindmap_router)
 
 
+@app.get("/")
+def root():
+    return {"status": "ok", "message": "Organizer API is running", "docs": "/docs"}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
