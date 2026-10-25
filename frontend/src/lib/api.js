@@ -60,3 +60,15 @@ export function deleteCloudMap(mapId) {
   });
 }
 
+export function transcribeVoice(audioBlob, nodeTitles = []) {
+  const form = new FormData();
+  form.append("file", audioBlob, "command.webm");
+  if (nodeTitles.length > 0) {
+    form.append("node_titles", Array.isArray(nodeTitles) ? nodeTitles.join(", ") : String(nodeTitles));
+  }
+  return request("/api/mindmap/transcribe", {
+    method: "POST",
+    body: form,
+  });
+}
+

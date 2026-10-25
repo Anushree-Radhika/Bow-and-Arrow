@@ -580,7 +580,12 @@ export default function MindMapCanvas() {
           {/* Floating Command Bar at bottom */}
           <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4">
             <div className="pointer-events-auto w-full max-w-xl">
-              <CommandBar onSubmit={(text, spoken) => run(text, spoken)} busy={busy} notice={notice} />
+              <CommandBar
+                onSubmit={(text, spoken) => run(text, spoken)}
+                busy={busy}
+                notice={notice}
+                activeNodes={state.nodes}
+              />
             </div>
           </div>
         </div>

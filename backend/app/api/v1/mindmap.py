@@ -97,7 +97,7 @@ def command(
 async def transcribe_voice(
     file: UploadFile = File(...),
     node_titles: str = Form(default=""),
-    current_user: User = Depends(get_current_user),
+    user: User = Depends(current_user),
 ):
     text = await transcribe_audio(file, prompt_context=node_titles)
     return {"text": text}
