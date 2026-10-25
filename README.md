@@ -74,30 +74,33 @@ organizer/
 │   │   │   ├── storage_service.py   # Vector store adapter for Supabase RPC & batch embeddings
 │   │   │   └── voice_service.py     # Groq Whisper-large-v3-turbo transcription engine with context priming
 │   │   └── main.py                  # FastAPI application factory, CORS middleware, router registration
+│   ├── Dockerfile                   # Production Python 3.11 container image
 │   ├── main.py                      # Uvicorn entrypoint shim
 │   └── requirements.txt             # Pinned backend dependencies
-└── frontend/
-    ├── src/
-    │   ├── app/
-    │   │   ├── globals.css          # Design system tokens, dark mode palette, custom canvas styling
-    │   │   ├── layout.jsx           # Root layout & Bow and Arrow branding metadata
-    │   │   └── page.jsx             # Home view wrapped in Supabase AuthGate
-    │   ├── components/
-    │   │   ├── AuthGate.jsx         # Supabase auth wrapper & session isolation provider
-    │   │   ├── mindmap/
-    │   │   │   ├── CommandBar.jsx   # MediaRecorder voice input with Whisper transcription & recording states
-    │   │   │   ├── MindMapCanvas.jsx# 2D infinite canvas, viewport pan/zoom, auto-save engine
-    │   │   │   ├── MindNode.jsx     # Interactive study card (timers, progress, citation badges)
-    │   │   │   └── NodeNotesDialog.jsx # Modal dialog for point-wise topic notes & checkpoints
-    │   │   ├── navigation/
-    │   │   │   └── Sidebar.jsx      # Multi-map library, roadmap creator, PDF drag-and-drop
-    │   │   └── ui/                  # Accessible UI component library (Dialog, Button, Badge, Icons)
-    │   └── lib/
-    │       ├── api.js               # Authenticated API client with transcribeVoice & Supabase JWT injection
-    │       ├── maps-storage.js      # Supabase cloud persistence layer with beforeunload tab-flush
-    │       ├── mindmap-logic.js     # Pure state reducer for drift-free timestamped timers & graph topology
-    │       └── supabase.js          # Supabase client singleton & auth token accessor
-    └── package.json                 # Next.js 14 frontend dependencies & scripts
+├── frontend/
+│   ├── Dockerfile                   # Multi-stage production Next.js 14 container
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── globals.css          # Design system tokens, dark mode palette, custom canvas styling
+│   │   │   ├── layout.jsx           # Root layout & Bow and Arrow branding metadata
+│   │   │   └── page.jsx             # Home view wrapped in Supabase AuthGate
+│   │   ├── components/
+│   │   │   ├── AuthGate.jsx         # Supabase auth wrapper & session isolation provider
+│   │   │   ├── mindmap/
+│   │   │   │   ├── CommandBar.jsx   # MediaRecorder voice input with Whisper transcription & recording states
+│   │   │   │   ├── MindMapCanvas.jsx# 2D infinite canvas, viewport pan/zoom, auto-save engine
+│   │   │   │   ├── MindNode.jsx     # Interactive study card (timers, progress, citation badges)
+│   │   │   │   └── NodeNotesDialog.jsx # Modal dialog for point-wise topic notes & checkpoints
+│   │   │   ├── navigation/
+│   │   │   │   └── Sidebar.jsx      # Multi-map library, roadmap creator, PDF drag-and-drop
+│   │   │   └── ui/                  # Accessible UI component library (Dialog, Button, Badge, Icons)
+│   │   └── lib/
+│   │       ├── api.js               # Authenticated API client with transcribeVoice & Supabase JWT injection
+│   │       ├── maps-storage.js      # Supabase cloud persistence layer with beforeunload tab-flush
+│   │       ├── mindmap-logic.js     # Pure state reducer for drift-free timestamped timers & graph topology
+│   │       └── supabase.js          # Supabase client singleton & auth token accessor
+│   └── package.json                 # Next.js 14 frontend dependencies & scripts
+└── docker-compose.yml               # Multi-container orchestration (FastAPI + Next.js)
 ```
 
 ---
@@ -254,7 +257,34 @@ In your [Supabase Dashboard](https://supabase.com/dashboard/project/_/sql), open
 1. `supabase/migrations/0001_knowledge.sql` (Enables `pgvector`, sets up `knowledge_chunks`, and installs `match_user_knowledge` RPC)
 2. `supabase/migrations/0002_study_maps.sql` (Creates `study_maps` table with Row-Level Security policies)
 
-### 2. Backend Setup
+---
+
+### 🐳 Option A: Quickstart with Docker Compose (Recommended)
+
+Run both the FastAPI backend and Next.js frontend with a single command:
+
+```bash
+# 1. Configure environment variables
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env.local
+
+# 2. Build and start containers
+docker compose up --build
+```
+
+* **Frontend**: [http://localhost:3000](http://localhost:3000)
+* **Backend API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+To stop the containers:
+```bash
+docker compose down
+```
+
+---
+
+### 💻 Option B: Manual Local Setup
+
+#### 1. Backend Setup
 ```bash
 cd backend
 
@@ -274,7 +304,7 @@ uvicorn main:app --reload --port 8000
 ```
 Interactive API documentation will be available at `http://localhost:8000/docs`.
 
-### 3. Frontend Setup
+#### 2. Frontend Setup
 ```bash
 cd frontend
 
