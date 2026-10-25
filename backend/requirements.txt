@@ -6,6 +6,12 @@ python-multipart>=0.0.9
 pypdf>=4.0
 python-dotenv>=1.0
 google-genai>=1.0
+langchain>=1.0.0
+langchain-core
+langchain-community
+langchain-text-splitters>=1.0.0
+pymupdf>=2.0.0
 
 # dev
 pytest>=8
+

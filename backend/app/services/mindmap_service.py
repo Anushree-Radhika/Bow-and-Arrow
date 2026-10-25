@@ -11,6 +11,8 @@ from difflib import SequenceMatcher
 
 from fastapi import HTTPException
 
+from langchain_core.documents import Document
+
 from app.core.config import DEFAULT_NODE_SECONDS, settings
 from app.core.security import User
 from app.models.command import (
@@ -40,13 +42,38 @@ MAX_DEPTH = 3
 MIN_ADD_SECONDS, MAX_ADD_SECONDS = 60, 8 * 3600
 
 
-@dataclass
-class Ctx:
-    """One retrieved passage handed to the LLM as grounding."""
+class Ctx(Document):
+    """Retrieved passage handed to the LLM as grounding, built on LangChain Document."""
 
-    title: str
-    page: int | None
-    text: str
+    def __init__(
+        self,
+        title: str,
+        page: int | None,
+        text: str,
+        metadata: dict | None = None,
+        **extra_metadata,
+    ) -> None:
+        merged_metadata = {
+            "source": title,
+            "source_title": title,
+            "page": page,
+            "page_number": page,
+            **(metadata or {}),
+            **extra_metadata,
+        }
+        super().__init__(page_content=text, metadata=merged_metadata)
+
+    @property
+    def title(self) -> str:
+        return self.metadata.get("source_title") or self.metadata.get("source") or ""
+
+    @property
+    def page(self) -> int | None:
+        return self.metadata.get("page") or self.metadata.get("page_number")
+
+    @property
+    def text(self) -> str:
+        return self.page_content
 
     @property
     def label(self) -> str:
@@ -179,16 +206,42 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 def rank_uploaded(chunks: list[Chunk], vectors: list[list[float]], query_vec: list[float], k: int) -> list[Ctx]:
-    scored = sorted(zip(chunks, vectors), key=lambda cv: -_cosine(cv[1], query_vec))[:k]
+    scored = sorted(
+        zip(chunks, vectors),
+        key=lambda cv: -_cosine(cv[1], query_vec),
+    )[:k]
     # present the passages in reading order so the roadmap follows the documents
     scored.sort(key=lambda cv: (cv[0].source_title, cv[0].page))
-    return [Ctx(c.source_title, c.page, c.text) for c, _ in scored]
+    return [
+        Ctx(
+            title=c.source_title,
+            page=c.page,
+            text=c.text,
+            metadata={
+                **getattr(c, "metadata", {}),
+                "similarity": _cosine(v, query_vec),
+            },
+        )
+        for c, v in scored
+    ]
 
 
 def retrieve_folder_context(user: User, query: str, folder_id: str | None, ai: AI, store: KnowledgeStore) -> list[Ctx]:
     qv = ai.embed_query(query)
     rows = store.match(user, qv, settings.rag_top_k, settings.rag_min_similarity, folder_id)
-    return [Ctx(r["source_title"], r.get("page_number"), r["content"]) for r in rows]
+    return [
+        Ctx(
+            title=r["source_title"],
+            page=r.get("page_number"),
+            text=r["content"],
+            metadata={
+                "id": str(r.get("id", "")),
+                "folder_id": r.get("folder_id"),
+                "similarity": r.get("similarity"),
+            },
+        )
+        for r in rows
+    ]
 
 
 def build_roadmap(prompt: str, ctx: list[Ctx], ai: AI, node_seconds: int = DEFAULT_NODE_SECONDS) -> MapOut:
