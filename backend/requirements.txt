@@ -12,6 +12,3 @@ langchain-community
 langchain-text-splitters>=1.0.0
 pymupdf>=2.0.0
 
-# dev
-pytest>=8
-

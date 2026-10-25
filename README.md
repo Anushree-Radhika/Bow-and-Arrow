@@ -4,8 +4,8 @@ Turn a prompt, or your own PDFs, into a study map with a 30-minute timer on ever
 
 ```
 supabase/migrations/0001_knowledge.sql   tables, RLS, match_user_knowledge()
-supabase/tests/                          SQL tests (RLS isolation, RPC, cascade)
-backend/                                 FastAPI: routers/mindmap.py + services
+supabase/migrations/0002_study_maps.sql   persistent study maps with RLS
+backend/                                 FastAPI: app/ (core, api, services, models)
 frontend/                                Next.js: src/components/mindmap/MindMapCanvas.jsx
 ```
 
