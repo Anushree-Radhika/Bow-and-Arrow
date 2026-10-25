@@ -1,24 +1,9 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+"""Main entrypoint for Organizer Backend.
 
-from config import settings
-from routers.mindmap import router as mindmap_router
+Re-exports FastAPI app instance from app.main for uvicorn compatibility:
+`uvicorn main:app --reload`
+"""
 
-app = FastAPI(title="Organizer API", version="0.1.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Authorization", "Content-Type"],
-)
-app.include_router(mindmap_router)
+from app.main import app
 
-
-@app.get("/")
-def root():
-    return {"status": "ok", "message": "Organizer API is running", "docs": "/docs"}
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+__all__ = ["app"]
