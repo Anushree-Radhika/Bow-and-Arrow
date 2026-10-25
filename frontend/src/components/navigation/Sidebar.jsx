@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { generateMap } from "@/lib/api";
 import { listFolders } from "@/lib/folders";
 import { useAuth } from "@/components/AuthGate";
+import { ArchersBowIcon } from "@/components/ui/ArchersBowIcon";
 import { cn } from "@/lib/utils";
 
 const DURATION_PRESETS = [15, 25, 30, 45, 60];
@@ -141,18 +142,18 @@ export default function Sidebar({
           "fixed md:static inset-y-0 left-0 z-40 flex h-full flex-col border-r border-[#232732] bg-[#12141a] transition-all duration-300 ease-in-out shrink-0 select-none",
           isOpen ? "w-80" : "w-0 -translate-x-full md:translate-x-0 md:w-0 overflow-hidden border-r-0"
         )}
-        aria-label="Organizer Sidebar"
+        aria-label="Bow and Arrow Sidebar"
       >
         <div className="flex h-full w-80 flex-col overflow-hidden">
           {/* 1. Header */}
           <div className="flex h-13 shrink-0 items-center justify-between border-b border-[#232732] px-4">
             <div className="flex items-center gap-2.5">
               <div className="flex size-7 items-center justify-center rounded-lg bg-indigo-600 font-mono text-xs font-bold text-white shadow-md shadow-indigo-600/30">
-                <BrainCircuit className="size-4" />
+                <ArchersBowIcon className="size-4" />
               </div>
               <div>
                 <span className="font-mono text-xs font-bold tracking-wider text-slate-100 uppercase">
-                  Organizer
+                  Bow and Arrow
                 </span>
                 <span className="block text-[10px] text-muted-foreground font-sans">
                   Study Platform

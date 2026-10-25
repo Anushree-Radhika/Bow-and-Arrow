@@ -3,8 +3,8 @@ import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 
 export const metadata = {
-  title: "Organizer",
-  description: "Turn a prompt or your PDFs into a study map with a timer on every topic.",
+  title: "Bow and Arrow",
+  description: "Turn a prompt or your PDFs into a targeted study roadmap with timers on every topic.",
 };
 
 export default function RootLayout({ children }) {

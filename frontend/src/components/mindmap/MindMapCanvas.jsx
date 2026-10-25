@@ -21,15 +21,19 @@ import {
   reducer,
 } from "@/lib/mindmap-logic";
 import {
+  deleteMapFromCloud,
   getActiveMapId,
   loadSavedMaps,
+  persistMapToCloud,
   saveAllMaps,
   setActiveMapId,
+  syncMapsWithCloud,
 } from "@/lib/maps-storage";
 import Sidebar from "@/components/navigation/Sidebar";
 import CommandBar from "./CommandBar";
 import MindNode from "./MindNode";
 import NodeNotesDialog from "./NodeNotesDialog";
+import { ArchersBowIcon } from "@/components/ui/ArchersBowIcon";
 import { cn } from "@/lib/utils";
 
 function beep() {
@@ -48,14 +52,14 @@ function beep() {
       osc.stop(ctx.currentTime + t + 0.24);
     });
     setTimeout(() => ctx.close(), 1500);
-  } catch {}
+  } catch { }
 }
 
 function speak(text) {
   try {
     window.speechSynthesis?.cancel();
     window.speechSynthesis?.speak(new SpeechSynthesisUtterance(text));
-  } catch {}
+  } catch { }
 }
 
 export default function MindMapCanvas() {
@@ -72,14 +76,15 @@ export default function MindMapCanvas() {
   const [sidebarTab, setSidebarTab] = useState("maps"); // "maps" | "create"
   const [activeNotesNodeId, setActiveNotesNodeId] = useState(null);
 
-  // Canvas Viewport & Zoom
+  // Canvas Viewport & Zoom (Eraser-style 2D canvas with pan & zoom)
   const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 60, y: 60 });
   const [isPanning, setIsPanning] = useState(false);
   const containerRef = useRef(null);
-  const panStartRef = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
+  const panStartRef = useRef({ startX: 0, startY: 0, initialPanX: 60, initialPanY: 60 });
   const lastAlarm = useRef(0);
 
-  // Load saved maps on mount
+  // Load saved maps on mount & synchronize with cloud database
   useEffect(() => {
     try {
       const savedMaps = loadSavedMaps();
@@ -96,10 +101,28 @@ export default function MindMapCanvas() {
         setSidebarTab("create");
       }
 
-      const savedZoom = localStorage.getItem("organizer.zoom.v1");
+      const savedZoom = localStorage.getItem("bow_and_arrow.zoom.v1") || localStorage.getItem("organizer.zoom.v1");
       if (savedZoom) setZoom(Number(savedZoom) || 1);
     } catch {}
     setReady(true);
+
+    // Synchronize with database in background
+    syncMapsWithCloud()
+      .then((cloudMaps) => {
+        if (Array.isArray(cloudMaps) && cloudMaps.length > 0) {
+          setMaps(cloudMaps);
+          setActiveMapIdState((curActive) => {
+            if (!curActive || !cloudMaps.some((m) => m.id === curActive)) {
+              const first = cloudMaps[0];
+              setActiveMapId(first.id);
+              dispatch({ type: "HYDRATE", saved: first, now: Date.now() });
+              return first.id;
+            }
+            return curActive;
+          });
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const changeZoom = (newZoom) => {
@@ -107,10 +130,10 @@ export default function MindMapCanvas() {
     setZoom(clamped);
     try {
       localStorage.setItem("organizer.zoom.v1", String(clamped));
-    } catch {}
+    } catch { }
   };
 
-  // Sync active map updates back into maps array
+  // Sync active map updates back into maps array and cloud database
   useEffect(() => {
     if (!ready || !activeMapId || !state.title) return;
     setMaps((prev) => {
@@ -126,6 +149,7 @@ export default function MindMapCanvas() {
       const nextMaps = [...prev];
       nextMaps[idx] = updated;
       saveAllMaps(nextMaps);
+      persistMapToCloud(updated);
       return nextMaps;
     });
   }, [ready, state.nodes, state.title, state.folderId, activeMapId]);
@@ -203,10 +227,13 @@ export default function MindMapCanvas() {
     const nextMaps = [newMap, ...maps.filter((m) => m.id !== newId)];
     setMaps(nextMaps);
     saveAllMaps(nextMaps);
+    persistMapToCloud(newMap);
     setActiveMapIdState(newId);
     setActiveMapId(newId);
 
     dispatch({ type: "LOAD_MAP", map: res, now: now() });
+    setPan({ x: 60, y: 60 });
+    changeZoom(1);
 
     const bits = [
       res.grounded ? `Built from ${res.sources.map((s) => s.title).join(", ")}.` : "Built from your prompt.",
@@ -220,6 +247,8 @@ export default function MindMapCanvas() {
     setActiveMapIdState(map.id);
     setActiveMapId(map.id);
     dispatch({ type: "LOAD_MAP", map, now: now() });
+    setPan({ x: 60, y: 60 });
+    changeZoom(1);
   };
 
   // Map deletion
@@ -227,6 +256,7 @@ export default function MindMapCanvas() {
     const nextMaps = maps.filter((m) => m.id !== id);
     setMaps(nextMaps);
     saveAllMaps(nextMaps);
+    deleteMapFromCloud(id);
 
     if (activeMapId === id) {
       if (nextMaps.length > 0) {
@@ -241,42 +271,57 @@ export default function MindMapCanvas() {
     }
   };
 
-  // Pan & Drag on Eraser-style canvas
+  // Pan & Drag on Eraser-style canvas (Supports Left, Right, Up, Down freely)
   const handleMouseDown = (e) => {
+    if (e.button !== 0) return; // only left click pans
     if (
       e.target.closest("article") ||
       e.target.closest("button") ||
       e.target.closest("input") ||
       e.target.closest("select") ||
-      e.target.closest("form")
+      e.target.closest("form") ||
+      e.target.closest("[role='dialog']")
     ) {
       return;
     }
     setIsPanning(true);
     panStartRef.current = {
-      x: e.clientX,
-      y: e.clientY,
-      scrollLeft: containerRef.current?.scrollLeft || 0,
-      scrollTop: containerRef.current?.scrollTop || 0,
+      startX: e.clientX,
+      startY: e.clientY,
+      initialPanX: pan.x,
+      initialPanY: pan.y,
     };
   };
 
   const handleMouseMove = (e) => {
-    if (!isPanning || !containerRef.current) return;
-    const dx = e.clientX - panStartRef.current.x;
-    const dy = e.clientY - panStartRef.current.y;
-    containerRef.current.scrollLeft = panStartRef.current.scrollLeft - dx;
-    containerRef.current.scrollTop = panStartRef.current.scrollTop - dy;
+    if (!isPanning) return;
+    const dx = e.clientX - panStartRef.current.startX;
+    const dy = e.clientY - panStartRef.current.startY;
+    setPan({
+      x: Math.round(panStartRef.current.initialPanX + dx),
+      y: Math.round(panStartRef.current.initialPanY + dy),
+    });
   };
 
   const handleMouseUp = () => setIsPanning(false);
 
+  // Wheel handling: regular scroll/swipe pans in both X and Y; Ctrl+wheel / pinch zooms
+  const handleWheel = (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const zoomDelta = -e.deltaY * 0.002;
+      changeZoom(zoom + zoomDelta);
+    } else {
+      setPan((prev) => ({
+        x: Math.round(prev.x - e.deltaX),
+        y: Math.round(prev.y - e.deltaY),
+      }));
+    }
+  };
+
   const resetView = () => {
     changeZoom(1);
-    if (containerRef.current) {
-      containerRef.current.scrollLeft = 0;
-      containerRef.current.scrollTop = 0;
-    }
+    setPan({ x: 60, y: 60 });
   };
 
   const { pos, edges, width, height } = useMemo(() => layoutTree(state.nodes), [state.nodes]);
@@ -338,7 +383,8 @@ export default function MindMapCanvas() {
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-slate-100">Organizer</span>
+                <ArchersBowIcon className="size-4 text-indigo-400" />
+                <span className="text-sm font-semibold text-slate-100">Bow and Arrow</span>
                 <span className="text-xs text-muted-foreground hidden sm:inline">• Study Canvas</span>
               </div>
             )}
@@ -421,8 +467,12 @@ export default function MindMapCanvas() {
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
               onMouseLeave={handleMouseUp}
+              onWheel={handleWheel}
+              style={{
+                backgroundPosition: `${pan.x}px ${pan.y}px`,
+              }}
               className={cn(
-                "relative flex-1 w-full overflow-auto select-none",
+                "relative flex-1 w-full h-full overflow-hidden select-none",
                 "bg-[#0d0f14] bg-[radial-gradient(#262c38_1.2px,transparent_1.2px)] [background-size:24px_24px]",
                 isPanning ? "cursor-grabbing" : "cursor-grab"
               )}
@@ -430,81 +480,73 @@ export default function MindMapCanvas() {
               aria-label="Study mindmap canvas"
               tabIndex={0}
             >
+              {/* Transform Plane with Pan & Zoom */}
               <div
                 style={{
-                  width: Math.max(width * zoom + 120, 1000),
-                  height: Math.max(height * zoom + 160, 700),
-                  minWidth: "100%",
-                  minHeight: "100%",
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                  transformOrigin: "0 0",
+                  width,
+                  height,
                 }}
-                className="relative p-8"
+                className="absolute left-0 top-0 transition-transform duration-75 will-change-transform"
               >
+                {/* SVG Connector Lines */}
+                <svg
+                  className="pointer-events-none absolute inset-0"
+                  width={width}
+                  height={height}
+                  aria-hidden="true"
+                >
+                  {edges.map((e) => {
+                    const isDone = doneIds.has(e.to);
+                    return (
+                      <path
+                        key={e.id}
+                        d={e.d}
+                        fill="none"
+                        strokeWidth={isDone ? 2 : 1.5}
+                        className={cn(
+                          "transition-colors duration-300",
+                          isDone ? "stroke-emerald-500/80" : "stroke-[#2d3342]"
+                        )}
+                      />
+                    );
+                  })}
+                </svg>
+
+                {/* Root Node (Study Topic Title) */}
                 <div
                   style={{
-                    width,
-                    height,
-                    transform: `scale(${zoom})`,
-                    transformOrigin: "top left",
+                    left: pos[ROOT_ID].x,
+                    top: pos[ROOT_ID].y,
+                    width: pos[ROOT_ID].w,
+                    height: pos[ROOT_ID].h,
                   }}
-                  className="relative transition-transform duration-75"
+                  className="absolute flex items-center justify-center gap-2 rounded-xl border border-indigo-500/40 bg-indigo-950/70 px-3.5 shadow-lg shadow-indigo-950/50 backdrop-blur"
+                  title="Main Roadmap Topic"
                 >
-                  {/* SVG Connector Lines */}
-                  <svg
-                    className="pointer-events-none absolute inset-0"
-                    width={width}
-                    height={height}
-                    aria-hidden="true"
-                  >
-                    {edges.map((e) => {
-                      const isDone = doneIds.has(e.to);
-                      return (
-                        <path
-                          key={e.id}
-                          d={e.d}
-                          fill="none"
-                          strokeWidth={isDone ? 2 : 1.5}
-                          className={cn(
-                            "transition-colors duration-300",
-                            isDone ? "stroke-emerald-500/80" : "stroke-[#2d3342]"
-                          )}
-                        />
-                      );
-                    })}
-                  </svg>
-
-                  {/* Root Node (Study Topic Title) */}
-                  <div
-                    style={{
-                      left: pos[ROOT_ID].x,
-                      top: pos[ROOT_ID].y,
-                      width: pos[ROOT_ID].w,
-                      height: pos[ROOT_ID].h,
-                    }}
-                    className="absolute flex items-center justify-center gap-2 rounded-xl border border-indigo-500/40 bg-indigo-950/70 px-3.5 shadow-lg shadow-indigo-950/50 backdrop-blur"
-                  >
-                    <div className="size-2 rounded-full bg-indigo-400 animate-pulse shrink-0" />
-                    <span className="line-clamp-2 text-xs font-semibold leading-tight text-indigo-100 text-center">
-                      {state.title}
-                    </span>
-                  </div>
-
-                  {/* Compact Mindmap Nodes */}
-                  {state.nodes.map((n) => (
-                    <MindNode
-                      key={n.id}
-                      node={n}
-                      box={pos[n.id] ?? { x: 0, y: 0, w: CARD.w, h: CARD.h }}
-                      expanding={expanding === n.id}
-                      onToggleRun={onToggleRun}
-                      onComplete={onComplete}
-                      onAdd={onAdd}
-                      onReset={onReset}
-                      onExpand={onExpand}
-                      onSetTime={onSetTime}
-                      onOpenNotes={(node) => setActiveNotesNodeId(node.id)}
-                    />
-                  ))}
+                  <Sparkles className="size-3.5 text-indigo-300 shrink-0" />
+                  <span className="line-clamp-2 text-xs font-semibold leading-tight text-indigo-100 text-center">
+                    {state.title}
+                  </span>
                 </div>
+
+                {/* Compact Mindmap Nodes */}
+                {state.nodes.map((n) => (
+                  <MindNode
+                    key={n.id}
+                    node={n}
+                    box={pos[n.id] ?? { x: 0, y: 0, w: CARD.w, h: CARD.h }}
+                    expanding={expanding === n.id}
+                    onToggleRun={onToggleRun}
+                    onComplete={onComplete}
+                    onAdd={onAdd}
+                    onReset={onReset}
+                    onExpand={onExpand}
+                    onSetTime={onSetTime}
+                    onOpenNotes={(node) => setActiveNotesNodeId(node.id)}
+                  />
+                ))}
               </div>
             </div>
           ) : (
@@ -512,11 +554,11 @@ export default function MindMapCanvas() {
             <div className="flex flex-1 flex-col items-center justify-center p-6 text-center bg-[#0d0f14] bg-[radial-gradient(#262c38_1.2px,transparent_1.2px)] [background-size:24px_24px]">
               <div className="max-w-md space-y-4 rounded-2xl border border-[#232732] bg-[#12141a]/90 p-8 backdrop-blur shadow-2xl">
                 <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30">
-                  <BrainCircuit className="size-6" />
+                  <ArchersBowIcon className="size-6" />
                 </div>
                 <div className="space-y-1.5">
                   <h2 className="text-base font-bold text-white tracking-tight">
-                    Welcome to Organizer
+                    Welcome to Bow and Arrow
                   </h2>
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     Select a study roadmap from the left sidebar, or create a new one to begin your focused study session.

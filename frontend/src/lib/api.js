@@ -9,7 +9,7 @@ async function request(path, init = {}) {
   try {
     res = await fetch(`${BASE}${path}`, { ...init, headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` } });
   } catch {
-    throw new Error("Can't reach the Organizer server. Check that the backend is running.");
+    throw new Error("Can't reach the Bow and Arrow server. Check that the backend is running.");
   }
   if (!res.ok) {
     let message = `Something went wrong (${res.status}).`;
@@ -40,3 +40,23 @@ export function sendCommand({ command, nodes, mapTitle, folderId }) {
     body: JSON.stringify({ command, nodes, mapTitle, folderId: folderId || null }),
   });
 }
+
+/** Persistent cloud roadmap storage */
+export function fetchCloudMaps() {
+  return request("/api/maps", { method: "GET" });
+}
+
+export function saveCloudMap(map) {
+  return request("/api/maps", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(map),
+  });
+}
+
+export function deleteCloudMap(mapId) {
+  return request(`/api/maps/${encodeURIComponent(mapId)}`, {
+    method: "DELETE",
+  });
+}
+

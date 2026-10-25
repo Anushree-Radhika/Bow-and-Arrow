@@ -4,6 +4,7 @@ import { LogOut } from "lucide-react";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ArchersBowIcon } from "@/components/ui/ArchersBowIcon";
 
 const AuthContext = createContext({
   session: null,
@@ -58,9 +59,12 @@ export default function AuthGate({ children }) {
     };
     return (
       <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 p-6">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Organizer</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Sign in to build and time your study maps.</p>
+        <div className="flex flex-col items-center text-center">
+          <div className="flex size-12 items-center justify-center rounded-2xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 mb-3 shadow-lg shadow-indigo-600/10">
+            <ArchersBowIcon className="size-6" />
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-white">Bow and Arrow</h1>
+          <p className="mt-1 text-xs text-muted-foreground">Sign in to build and target your study roadmaps.</p>
         </div>
         <form onSubmit={submit} className="flex flex-col gap-3">
           <label className="text-sm" htmlFor="email">Email</label>

@@ -209,7 +209,7 @@ function MindNode({
           {sources.length > 0 && (
             <div
               className="ml-auto flex items-center gap-0.5 text-[10px] text-muted-foreground"
-              title={sources.join(", ")}
+              title={`Grounded in uploaded sources: ${sources.join(", ")}`}
             >
               <FileText className="size-2.5 text-indigo-400" />
             </div>
@@ -218,7 +218,14 @@ function MindNode({
       )}
 
       {/* Slim Progress Bar */}
-      <div className="h-0.5 w-full overflow-hidden rounded-full bg-[#262a34] mt-1" role="presentation">
+      <div
+        className="h-0.5 w-full overflow-hidden rounded-full bg-[#262a34] mt-1"
+        role="progressbar"
+        aria-valuenow={Math.round(pct)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        title={`Topic timer progress: ${Math.round(pct)}% remaining`}
+      >
         <div
           className={cn(
             "h-full rounded-full transition-all duration-1000 ease-linear",
