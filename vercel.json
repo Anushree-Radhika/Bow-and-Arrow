@@ -3,8 +3,7 @@
     "services": {
         "frontend": {
             "root": "frontend",
-            "framework": "nextjs",
-            "entrypoint": "src/app/layout.jsx"
+            "framework": "nextjs"
         },
         "backend": {
             "root": "backend",
