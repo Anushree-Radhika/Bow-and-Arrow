@@ -100,12 +100,6 @@ organizer/
 │   │       ├── mindmap-logic.js     # Pure state reducer for drift-free timestamped timers & graph topology
 │   │       └── supabase.js          # Supabase client singleton & auth token accessor
 │   └── package.json                 # Next.js 14 frontend dependencies & scripts
-├── k8s/                             # Production Kubernetes (K3s) manifests
-│   ├── namespace.yaml               # Dedicated mindmaps namespace
-│   ├── secrets.example.yaml         # Kubernetes Secrets template (Supabase, Gemini, Groq)
-│   ├── backend.yaml                 # FastAPI deployment & ClusterIP service (with health probes)
-│   ├── frontend.yaml                # Next.js deployment & ClusterIP service
-│   └── ingress.yaml                 # NGINX Ingress controller routing (/api & /) with TLS
 └── docker-compose.yml               # Local multi-container orchestration (FastAPI + Next.js)
 ```
 
